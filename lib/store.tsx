@@ -23,15 +23,15 @@ type State = {
 
 const init: State = {
   posts: initialPosts,
-  comments: [{ id: "c1", postId: "p1", username: "sara", text: "Mubarak ho Bilal bhai! 🎉", pinned: false }],
+  comments: [{ id: "c1", postId: "p1", username: "sara", text: "Congratulations, Bilal! 🎉", pinned: false }],
   following: [],
   blocked: [],
   saved: [],
   reports: [],
   closed: [],
   notes: [
-    { id: "n1", text: "Sara ne aap ki post par 🔥 Vibe diya", read: false },
-    { id: "n2", text: "Bilal ne aap ke struggle ko 🤝 Support kiya", read: false },
+    { id: "n1", text: "Sara gave your post a 🔥 Vibe", read: false },
+    { id: "n2", text: "Bilal 🤝 supported your struggle", read: false },
   ],
   onboarded: false,
 };
@@ -63,7 +63,7 @@ function useStoreValue() {
     addPost: (type: PostType, text: string, image?: string, extra: Partial<Post> = {}) =>
       up((x) => ({
         ...x,
-        posts: [{ id: uid(), username: ME, type, text, time: "abhi", vibes: 0, vibed: [], image, ...extra }, ...x.posts],
+        posts: [{ id: uid(), username: ME, type, text, time: "now", vibes: 0, vibed: [], image, ...extra }, ...x.posts],
       })),
     vibe: (id: string) =>
       up((x) => ({ ...x, posts: x.posts.map((p) => (p.id === id ? { ...p, vibed: toggle(p.vibed, ME) } : p)) })),
@@ -95,6 +95,7 @@ function useStoreValue() {
         }
         b.items.push({ text, done: false });
         localStorage.setItem(key, JSON.stringify(prof));
+        window.dispatchEvent(new Event("mv-profile"));
       } catch {}
     },
   };

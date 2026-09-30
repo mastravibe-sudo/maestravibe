@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { profiles } from "@/lib/profiles";
 import { ME, useStore } from "@/lib/store";
+import AuthBox from "@/components/AuthBox";
 
 const nav = [
   { href: "/", label: "Home", icon: "🏠" },
@@ -13,9 +14,9 @@ const nav = [
 
 // Vibe Packs: naya user ek click mein poori community follow kar sakta hai
 const packs = [
-  { name: "Business Vibes", icon: "🏢", desc: "Dukaandar aur entrepreneurs", users: ["bilal", "nova"] },
-  { name: "Creative Vibes", icon: "🎨", desc: "Designers aur artists", users: ["sara", "nova"] },
-  { name: "Everyone", icon: "✨", desc: "Sab se milo", users: ["bilal", "sara", "nova"] },
+  { name: "Business Vibes", icon: "🏢", desc: "Shop owners and entrepreneurs", users: ["bilal", "nova"] },
+  { name: "Creative Vibes", icon: "🎨", desc: "Designers and artists", users: ["sara", "nova"] },
+  { name: "Everyone", icon: "✨", desc: "Meet everyone", users: ["bilal", "sara", "nova"] },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -47,6 +48,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {n.label}
             </Link>
           ))}
+          <AuthBox />
         </aside>
 
         {/* Center */}
@@ -103,8 +105,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {!s.onboarded && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 p-6">
-            <h2 className="text-2xl font-bold">Apni community chuno</h2>
-            <p className="mt-1 text-sm text-zinc-400">Ek pack chuno aur us ke log ek click mein follow ho jayenge.</p>
+            <h2 className="text-2xl font-bold">Choose your community</h2>
+            <p className="mt-1 text-sm text-zinc-400">Pick a pack and follow everyone in it with one click.</p>
             <div className="mt-4 space-y-3">
               {packs.map((pk) => (
                 <button
@@ -122,7 +124,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               ))}
             </div>
             <button onClick={st.skip} className="mt-4 w-full text-sm text-zinc-500 hover:text-white">
-              Abhi nahi, baad mein
+              Not now
             </button>
           </div>
         </div>

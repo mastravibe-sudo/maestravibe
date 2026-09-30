@@ -53,7 +53,7 @@ function PostCard({ post, embedded = false }: { post: Post; embedded?: boolean }
       className={`rounded-2xl border border-white/10 p-5 ${embedded ? "bg-zinc-950" : "bg-zinc-900"}`}
       style={{ borderLeft: `4px solid ${a.style.accent}` }}
     >
-      {post.repostOf && !embedded && <p className="mb-2 text-xs text-zinc-500">🔁 {a.name} ne repost kiya</p>}
+      {post.repostOf && !embedded && <p className="mb-2 text-xs text-zinc-500">🔁 {a.name} reposted</p>}
 
       <header className="mb-3 flex items-center gap-3">
         <Link
@@ -89,7 +89,7 @@ function PostCard({ post, embedded = false }: { post: Post; embedded?: boolean }
                 <button
                   className="block w-full rounded-lg px-3 py-2 text-left hover:bg-white/10"
                   onClick={() => {
-                    const r = prompt("Report ki wajah likho (spam / harassment / fake / other):");
+                    const r = prompt("Reason for report (spam / harassment / fake / other):");
                     if (r) st.report(post.id, r);
                     setMenu(false);
                   }}
@@ -99,7 +99,7 @@ function PostCard({ post, embedded = false }: { post: Post; embedded?: boolean }
                 <button
                   className="block w-full rounded-lg px-3 py-2 text-left hover:bg-white/10"
                   onClick={() => {
-                    if (confirm(`@${a.username} ko block karein?`)) st.block(a.username);
+                    if (confirm(`Block @${a.username}?`)) st.block(a.username);
                     setMenu(false);
                   }}
                 >
@@ -138,7 +138,7 @@ function PostCard({ post, embedded = false }: { post: Post; embedded?: boolean }
               className="hover:text-white"
               onClick={() => {
                 st.addPost(target.type, "", undefined, { repostOf: target.id });
-                flash("Repost ho gaya ✓");
+                flash("Reposted ✓");
               }}
             >
               🔁 Repost
@@ -146,7 +146,7 @@ function PostCard({ post, embedded = false }: { post: Post; embedded?: boolean }
             <button
               className="hover:text-white"
               onClick={() => {
-                const q = prompt("Apni raaye likho:");
+                const q = prompt("Add your comment:");
                 if (q) st.addPost(target.type, q, undefined, { repostOf: target.id });
               }}
             >
@@ -156,7 +156,7 @@ function PostCard({ post, embedded = false }: { post: Post; embedded?: boolean }
               className="hover:text-white"
               onClick={() => {
                 navigator.clipboard?.writeText(`${location.origin}/${target.username}`);
-                flash("Link copy ho gaya ✓");
+                flash("Link copied ✓");
               }}
             >
               📩 Send
@@ -172,10 +172,10 @@ function PostCard({ post, embedded = false }: { post: Post; embedded?: boolean }
                 className="text-violet-300 hover:text-violet-200"
                 onClick={() => {
                   st.adoptDream(target.text);
-                  flash("Aap ki Dreams list mein add ho gaya 🌠");
+                  flash("Added to your dreams 🌠");
                 }}
               >
-                🌠 Mera bhi yehi khwab
+                🌠 I share this dream
               </button>
             )}
             {note && <span className="text-emerald-400">{note}</span>}
@@ -185,7 +185,7 @@ function PostCard({ post, embedded = false }: { post: Post; embedded?: boolean }
             <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
               {mine && (
                 <button onClick={() => st.toggleComments(post.id)} className="text-xs text-zinc-500 hover:text-white">
-                  {closed ? "🔓 Comments dobara kholo" : "🔒 Comments band karo"}
+                  {closed ? "🔓 Turn comments on" : "🔒 Turn comments off"}
                 </button>
               )}
               {list.map((c) => (
@@ -201,13 +201,13 @@ function PostCard({ post, embedded = false }: { post: Post; embedded?: boolean }
                 </div>
               ))}
               {closed ? (
-                <p className="text-sm text-zinc-500">Is post par comments band hain.</p>
+                <p className="text-sm text-zinc-500">Comments are turned off for this post.</p>
               ) : (
                 <div className="flex gap-2">
                   <input
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
-                    placeholder="Comment likho..."
+                    placeholder="Write a comment..."
                     className="min-w-0 flex-1 rounded-full bg-zinc-800 px-4 py-2 text-sm outline-none"
                   />
                   <button
@@ -264,7 +264,7 @@ export default function Feed() {
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="🔍 Log ya posts dhoondo..."
+        placeholder="🔍 Search people or posts..."
         className="w-full rounded-full border border-white/10 bg-zinc-900 px-5 py-2.5 outline-none placeholder:text-zinc-600"
       />
 
@@ -273,7 +273,7 @@ export default function Feed() {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Aaj aap ki vibe kya hai?"
+          placeholder="What's your vibe today?"
           rows={2}
           className="w-full resize-none bg-transparent text-lg outline-none placeholder:text-zinc-600"
         />
@@ -338,7 +338,7 @@ export default function Feed() {
         </div>
       ) : visible.length === 0 ? (
         <p className="py-10 text-center text-zinc-500">
-          {tab === "Following" ? "Abhi kisi ko follow nahi kiya. Right panel se follow karo." : tab === "Saved" ? "Koi post save nahi hui. 🔖 dabao." : "Koi post nahi mili."}
+          {tab === "Following" ? "You're not following anyone yet. Use the panel on the right." : tab === "Saved" ? "No saved posts yet. Tap 🔖 to save." : "No posts found."}
         </p>
       ) : (
         visible.map((p) => <PostCard key={p.id} post={p} />)
