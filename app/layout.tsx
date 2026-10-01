@@ -2,7 +2,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
-import { StoreProvider } from "@/lib/store";
+import { ColorModeProvider } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "Maestra Vibe",
@@ -13,9 +13,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="bg-zinc-950 text-zinc-100 antialiased">
-        <StoreProvider>
+        <ColorModeProvider>
           <AppShell>{children}</AppShell>
-        </StoreProvider>
+        </ColorModeProvider>
       </body>
     </html>
   );

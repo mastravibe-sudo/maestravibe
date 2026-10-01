@@ -2,37 +2,61 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { profiles } from "@/lib/profiles";
-import { ME, useStore } from "@/lib/store";
+import { createClient } from "@/lib/supabase/client";
 import AuthBox from "@/components/AuthBox";
-
-const nav = [
-  { href: "/", label: "Home", icon: "🏠" },
-  { href: `/${ME}`, label: "My Profile", icon: "👤" },
-];
-
-// Vibe Packs: naya user ek click mein poori community follow kar sakta hai
-const packs = [
-  { name: "Business Vibes", icon: "🏢", desc: "Shop owners and entrepreneurs", users: ["bilal", "nova"] },
-  { name: "Creative Vibes", icon: "🎨", desc: "Designers and artists", users: ["sara", "nova"] },
-  { name: "Everyone", icon: "✨", desc: "Meet everyone", users: ["bilal", "sara", "nova"] },
-];
+import { useColorMode } from "@/lib/theme";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const st = useStore();
-  const { s } = st;
-  const others = profiles.filter((p) => p.username !== ME);
+  const { mode } = useColorMode();
+  const lightHome = pathname === "/" && mode === "light";
+  const [myUsername, setMyUsername] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const supabase = createClient();
+    const load = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        if (mounted) setMyUsername(null);
+        return;
+      }
+
+      const { data } = await supabase.from("profiles").select("username").eq("id", user.id).maybeSingle();
+      if (mounted) setMyUsername(data?.username ?? null);
+    };
+
+    void load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const nav = useMemo(
+    () => [
+      { href: "/", label: "Home", icon: "🏠" },
+      { href: myUsername ? `/${myUsername}` : "/login", label: "My Profile", icon: "👤" },
+      { href: "/friends", label: "Friends", icon: "👥" },
+      { href: "/notifications", label: "Notifications", icon: "🔔" },
+      { href: "/market", label: "Market", icon: "🛍️" },
+    ],
+    [myUsername]
+  );
 
   return (
     <>
-      <div className="mx-auto flex min-h-screen max-w-7xl">
+      <div className={`mx-auto flex min-h-screen max-w-7xl ${lightHome ? "bg-[#f4f7fb] text-slate-900" : ""}`}>
         {/* Left menu */}
-        <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col gap-2 border-r border-white/10 p-5 md:flex">
+        <aside className={`sticky top-0 hidden h-screen w-64 shrink-0 flex-col gap-2 border-r p-5 md:flex ${lightHome ? "border-slate-200 bg-white" : "border-white/10"}`}>
           <Link
             href="/"
-            className="mb-6 bg-gradient-to-r from-violet-400 to-pink-400 bg-clip-text text-2xl font-extrabold text-transparent"
+            className={`mb-6 bg-linear-to-r ${lightHome ? "from-blue-700 to-cyan-500" : "from-violet-400 to-pink-400"} bg-clip-text text-2xl font-extrabold text-transparent`}
           >
             Maestra Vibe
           </Link>
@@ -40,95 +64,34 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Link
               key={n.href}
               href={n.href}
-              className={`flex items-center gap-3 rounded-xl px-4 py-3 text-lg transition hover:bg-white/10 ${
-                pathname === n.href ? "bg-white/10 font-semibold" : "text-zinc-400"
-              }`}
+              className={`flex items-center gap-3 rounded-xl px-4 py-3 text-lg transition ${lightHome ? "hover:bg-slate-50" : "hover:bg-white/10"} ${pathname === n.href ? (lightHome ? "bg-blue-50 font-semibold text-blue-700" : "bg-white/10 font-semibold") : lightHome ? "text-slate-500" : "text-zinc-400"}`}
             >
               <span>{n.icon}</span>
               {n.label}
             </Link>
           ))}
-          <AuthBox />
+          <AuthBox light={lightHome} />
         </aside>
 
         {/* Center */}
-        <div className="min-w-0 flex-1 pb-20 md:pb-0">{children}</div>
+        <div className={`min-w-0 flex-1 pb-20 md:pb-0 ${lightHome ? "bg-[#f4f7fb]" : ""}`}>{children}</div>
 
-        {/* Right suggestions */}
-        <aside className="sticky top-0 hidden h-screen w-80 shrink-0 p-5 xl:block">
-          <h3 className="mb-3 font-semibold text-zinc-300">Rising Vibes 🔥</h3>
-          <div className="space-y-2">
-            {others
-              .filter((p) => !s.blocked.includes(p.username))
-              .map((p) => (
-                <div key={p.username} className="flex items-center gap-3 rounded-xl p-2 hover:bg-white/5">
-                  <Link
-                    href={`/${p.username}`}
-                    className="flex h-11 w-11 items-center justify-center rounded-full text-xl"
-                    style={{ background: p.style.accent }}
-                  >
-                    {p.avatar}
-                  </Link>
-                  <Link href={`/${p.username}`} className="min-w-0 flex-1">
-                    <p className="truncate font-medium leading-tight">{p.name}</p>
-                    <p className="text-sm text-zinc-500">@{p.username}</p>
-                  </Link>
-                  <button
-                    onClick={() => st.follow(p.username)}
-                    className={`rounded-full px-3 py-1 text-sm ${
-                      s.following.includes(p.username) ? "bg-zinc-800 text-zinc-300" : "bg-violet-500 text-white"
-                    }`}
-                  >
-                    {s.following.includes(p.username) ? "Following" : "Follow"}
-                  </button>
-                </div>
-              ))}
-          </div>
-        </aside>
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-white/10 bg-zinc-950/90 p-3 backdrop-blur md:hidden">
+      <nav className={`fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t px-1 py-2 backdrop-blur md:hidden ${lightHome ? "border-slate-200 bg-white/95" : "border-white/10 bg-zinc-950/95"}`}>
         {nav.map((n) => (
           <Link
             key={n.href}
             href={n.href}
-            className={`flex flex-col items-center text-xs ${pathname === n.href ? "text-white" : "text-zinc-500"}`}
+            className={`flex min-w-0 flex-col items-center gap-0.5 text-[10px] ${pathname === n.href ? (lightHome ? "font-semibold text-blue-700" : "text-white") : lightHome ? "text-slate-500" : "text-zinc-500"}`}
           >
-            <span className="text-2xl">{n.icon}</span>
-            {n.label}
+            <span className="text-lg leading-5">{n.icon}</span>
+            <span className="max-w-full truncate">{n.label}</span>
           </Link>
         ))}
       </nav>
 
-      {/* Vibe Packs (pehli baar khulne par) */}
-      {!s.onboarded && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 p-6">
-            <h2 className="text-2xl font-bold">Choose your community</h2>
-            <p className="mt-1 text-sm text-zinc-400">Pick a pack and follow everyone in it with one click.</p>
-            <div className="mt-4 space-y-3">
-              {packs.map((pk) => (
-                <button
-                  key={pk.name}
-                  onClick={() => st.followMany(pk.users)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-white/10 p-4 text-left hover:bg-white/5"
-                >
-                  <span className="text-3xl">{pk.icon}</span>
-                  <span className="flex-1">
-                    <span className="block font-semibold">{pk.name}</span>
-                    <span className="text-sm text-zinc-400">{pk.desc}</span>
-                  </span>
-                  <span className="rounded-full bg-violet-500 px-3 py-1 text-sm text-white">Follow all</span>
-                </button>
-              ))}
-            </div>
-            <button onClick={st.skip} className="mt-4 w-full text-sm text-zinc-500 hover:text-white">
-              Not now
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 }

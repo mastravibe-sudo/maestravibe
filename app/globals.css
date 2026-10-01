@@ -3,3 +3,65 @@
 body {
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
+
+.profile-canvas-stage {
+  height: min(1120px, max(820px, 112vh));
+}
+
+@media (max-width: 639px) {
+  .profile-canvas-stage {
+    height: clamp(640px, 170vw, 760px);
+  }
+}
+
+.home-dashboard-root[data-mode="dark"] {
+  background: #09090b;
+  color: #f4f4f5;
+}
+
+.home-dashboard-root[data-mode="dark"] .home-dashboard-panel,
+.home-dashboard-root[data-mode="dark"] .home-feed-card {
+  border-color: #303036;
+  background-color: #18181b;
+  color: #e4e4e7;
+}
+
+.home-dashboard-root[data-mode="dark"] .text-slate-950,
+.home-dashboard-root[data-mode="dark"] .text-slate-900,
+.home-dashboard-root[data-mode="dark"] .text-slate-800,
+.home-dashboard-root[data-mode="dark"] .text-slate-700,
+.home-dashboard-root[data-mode="dark"] .text-slate-600 {
+  color: #e4e4e7;
+}
+
+.home-dashboard-root[data-mode="dark"] .text-slate-500,
+.home-dashboard-root[data-mode="dark"] .text-slate-400 {
+  color: #a1a1aa;
+}
+
+.home-dashboard-root[data-mode="dark"] .border-slate-200 {
+  border-color: #3f3f46;
+}
+
+.home-dashboard-root[data-mode="dark"] .bg-white,
+.home-dashboard-root[data-mode="dark"] .bg-slate-50,
+.home-dashboard-root[data-mode="dark"] .bg-slate-100 {
+  background-color: #18181b;
+}
+
+.home-dashboard-root[data-mode="dark"] .home-feed-card input,
+.home-dashboard-root[data-mode="dark"] .home-feed-card textarea {
+  border-color: #3f3f46;
+  background-color: #27272a;
+  color: #fafafa;
+}
+
+.home-dashboard-root[data-mode="dark"] .home-feed-card input::placeholder,
+.home-dashboard-root[data-mode="dark"] .home-feed-card textarea::placeholder {
+  color: #a1a1aa;
+}
+
+.home-dashboard-root[data-mode="dark"] .home-dashboard-panel .bg-slate-100,
+.home-dashboard-root[data-mode="dark"] .home-dashboard-panel .bg-slate-50 {
+  background-color: #27272a;
+}

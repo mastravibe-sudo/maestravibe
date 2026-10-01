@@ -18,5 +18,9 @@ export async function presignUpload(key: string, contentType: string) {
   return getSignedUrl(r2, cmd, { expiresIn: 300 });
 }
 
+export async function uploadObject(key: string, contentType: string, body: Uint8Array) {
+  await r2.send(new PutObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: key, ContentType: contentType, Body: body }));
+}
+
 // Upload ke baad photo dikhane ka public link
 export const publicUrl = (key: string) => `${process.env.R2_PUBLIC_URL}/${key}`;

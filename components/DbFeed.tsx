@@ -4,8 +4,13 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { rgba } from "@/lib/profiles";
 import { typeInfo, type PostType } from "@/lib/posts";
+import { useColorMode } from "@/lib/theme";
+
+const rgba = (hex: string, alpha: number) => {
+  const value = Number.parseInt(hex.slice(1), 16);
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+};
 
 type Row = {
   id: string;
@@ -49,12 +54,12 @@ function Card({ row, me, onVibe, onComment }: { row: Row; me: string | null; onV
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const a = row.profiles;
-  const accent = a.style?.accent ?? "#8b5cf6";
+  const accent = a.style?.accent ?? "#2563eb";
   const liked = !!me && row.vibes.some((v) => v.user_id === me);
   const comments = [...row.comments].sort((x, y) => Number(y.pinned) - Number(x.pinned));
 
   return (
-    <article className="rounded-2xl border border-white/10 bg-zinc-900 p-5" style={{ borderLeft: `4px solid ${accent}` }}>
+    <article className="home-feed-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" style={{ borderLeft: `4px solid ${accent}` }}>
       <header className="mb-3 flex items-center gap-3">
         <Link href={`/${a.username}`} className="flex h-11 w-11 items-center justify-center rounded-full text-xl" style={{ background: rgba(accent, 0.9) }}>
           {a.avatar}
@@ -63,7 +68,7 @@ function Card({ row, me, onVibe, onComment }: { row: Row; me: string | null; onV
           <Link href={`/${a.username}`} className="font-semibold hover:underline">
             {a.name || a.username}
           </Link>
-          <p className="text-sm text-zinc-500">
+            <p className="text-sm text-slate-500">
             @{a.username} · {ago(row.created_at)}
           </p>
         </div>
@@ -78,7 +83,7 @@ function Card({ row, me, onVibe, onComment }: { row: Row; me: string | null; onV
         <img src={row.image_url} alt="" className="mt-3 max-h-96 w-full rounded-xl object-cover" />
       )}
 
-      <footer className="mt-4 flex gap-5 text-sm text-zinc-400">
+      <footer className="mt-4 flex gap-5 text-sm text-slate-500">
         <button onClick={onVibe} className={liked ? "font-semibold text-orange-400" : "hover:text-white"}>
           {row.type === "struggle" ? "🤝 Support" : "🔥 Vibe"} {row.vibes.length}
         </button>
@@ -88,23 +93,23 @@ function Card({ row, me, onVibe, onComment }: { row: Row; me: string | null; onV
       </footer>
 
       {open && (
-        <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+          <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
           {comments.map((c) => (
             <div key={c.id} className="text-sm">
               <span className="font-semibold">{c.profiles.name || c.profiles.username}</span>{" "}
               {c.pinned && <span className="text-xs text-violet-300">📌 pinned</span>}
-              <p className="text-zinc-300">{c.body}</p>
+              <p className="text-slate-600">{c.body}</p>
             </div>
           ))}
           {row.comments_closed ? (
-            <p className="text-sm text-zinc-500">Comments are turned off for this post.</p>
+              <p className="text-sm text-slate-500">Comments are turned off for this post.</p>
           ) : (
             <div className="flex gap-2">
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Write a comment..."
-                className="min-w-0 flex-1 rounded-full bg-zinc-800 px-4 py-2 text-sm outline-none"
+                className="min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               />
               <button
                 onClick={() => {
@@ -126,6 +131,7 @@ function Card({ row, me, onVibe, onComment }: { row: Row; me: string | null; onV
 }
 
 export default function DbFeed() {
+  const { mode } = useColorMode();
   const [supabase] = useState(() => createClient());
   const [rows, setRows] = useState<Row[]>([]);
   const [me, setMe] = useState<string | null>(null);
@@ -154,6 +160,7 @@ export default function DbFeed() {
   }, [supabase]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 
@@ -167,16 +174,16 @@ export default function DbFeed() {
       let image_url: string | null = null;
       if (file) {
         const blob = await toWebp(file);
+        const formData = new FormData();
+        formData.append("purpose", "post");
+        formData.append("file", blob, "post.webp");
         const r = await fetch("/api/upload", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contentType: "image/webp" }),
+          body: formData,
         });
-        if (!r.ok) throw new Error((await r.json()).error ?? "Upload failed.");
-        const { uploadUrl, publicUrl } = await r.json();
-        const put = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "image/webp" }, body: blob });
-        if (!put.ok) throw new Error("Photo upload failed. Check the R2 CORS settings.");
-        image_url = publicUrl;
+        const result = (await r.json()) as { publicUrl?: string; error?: string };
+        if (!r.ok || !result.publicUrl) throw new Error(result.error ?? "Upload failed.");
+        image_url = result.publicUrl;
       }
       const { error } = await supabase.from("posts").insert({ user_id: me, type, body: text.trim(), image_url });
       if (error) throw error;
@@ -207,29 +214,29 @@ export default function DbFeed() {
   };
 
   return (
-    <main className="mx-auto max-w-xl space-y-5 px-4 py-6">
+    <section data-mode={mode} aria-label="Community feed" className="home-feed mx-auto max-w-3xl space-y-4 px-0 py-3 sm:py-5">
       {me ? (
-        <div className="rounded-2xl border border-white/10 bg-zinc-900 p-4">
+        <div className="home-feed-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="What's your vibe today?"
             rows={2}
-            className="w-full resize-none bg-transparent text-lg outline-none placeholder:text-zinc-600"
+            className="w-full resize-none bg-transparent text-base text-slate-900 outline-none placeholder:text-slate-400"
           />
-          {file && <p className="text-sm text-zinc-400">📷 {file.name}</p>}
+          {file && <p className="text-sm text-slate-500">📷 {file.name}</p>}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               {(Object.keys(typeInfo) as PostType[]).map((k) => (
                 <button
                   key={k}
                   onClick={() => setType(k)}
-                  className={`rounded-full px-3 py-1 text-sm ${type === k ? "bg-violet-500 text-white" : "bg-zinc-800 text-zinc-400"}`}
+                  className={`rounded-full px-3 py-1 text-sm ${type === k ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}
                 >
                   {typeInfo[k].icon} {typeInfo[k].label}
                 </button>
               ))}
-              <label className="cursor-pointer rounded-full bg-zinc-800 px-3 py-1 text-sm text-zinc-400 hover:text-white">
+              <label className="cursor-pointer rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-600 hover:bg-slate-200">
                 📷 Photo
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
               </label>
@@ -237,7 +244,7 @@ export default function DbFeed() {
             <button
               onClick={publish}
               disabled={busy}
-              className="rounded-full bg-violet-500 px-5 py-1.5 font-medium text-white hover:bg-violet-400 disabled:opacity-50"
+              className="rounded-lg bg-blue-600 px-5 py-2 font-medium text-white hover:bg-blue-500 disabled:opacity-50"
             >
               {busy ? "Posting..." : "Post"}
             </button>
@@ -245,21 +252,21 @@ export default function DbFeed() {
         </div>
       ) : (
         !loading && (
-          <Link href="/login" className="block rounded-2xl border border-white/10 bg-zinc-900 p-4 text-center text-zinc-300 hover:bg-zinc-800">
+          <Link href="/login" className="home-feed-card block rounded-xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-600 shadow-sm hover:bg-slate-50">
             Log in or sign up to share your vibe
           </Link>
         )
       )}
 
-      {error && <p className="rounded-xl bg-red-500/10 p-3 text-sm text-red-300">{error}</p>}
+      {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
       {loading ? (
-        <p className="py-10 text-center text-zinc-500">Loading posts...</p>
+        <p className="py-10 text-center text-slate-500">Loading posts...</p>
       ) : rows.length === 0 ? (
-        <p className="py-10 text-center text-zinc-500">No posts yet. Be the first to share your vibe.</p>
+        <p className="py-10 text-center text-slate-500">No posts yet. Be the first to share your vibe.</p>
       ) : (
         rows.map((r) => <Card key={r.id} row={r} me={me} onVibe={() => vibe(r)} onComment={(t) => comment(r, t)} />)
       )}
-    </main>
+    </section>
   );
 }
