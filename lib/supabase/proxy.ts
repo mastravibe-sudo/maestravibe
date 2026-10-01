@@ -23,9 +23,22 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  // getUser() session verify aur refresh karta hai. Yahan getSession() par bharosa mat karna.
-  await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user && request.nextUrl.pathname !== "/account-access") {
+    const { data: accountStatus } = await supabase.rpc("my_account_status");
 
-  // Login banne ke baad yahan protected pages ka redirect lagayenge
+    if (accountStatus === "pending" || accountStatus === "suspended") {
+      const status = accountStatus;
+      if (request.nextUrl.pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: `Account ${status}. Contact an administrator.` }, { status: 403 });
+      }
+
+      const destination = new URL(`/account-access?status=${status}`, request.url);
+      const blockedResponse = NextResponse.redirect(destination);
+      response.cookies.getAll().forEach((cookie) => blockedResponse.cookies.set(cookie));
+      return blockedResponse;
+    }
+  }
+
   return response;
 }

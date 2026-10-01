@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900" role="img" aria-labelledby="title">
+  <title id="title">Maestra Vibe space explorer logo</title>
+  <defs>
+    <radialGradient id="space" cx="50%" cy="45%" r="75%"><stop stop-color="#35108d"/><stop offset=".5" stop-color="#13052f"/><stop offset="1" stop-color="#03020c"/></radialGradient>
+    <linearGradient id="badge" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#bb35ff"/><stop offset="1" stop-color="#4b0bba"/></linearGradient>
+    <linearGradient id="visor" x1="0" x2=".8" y1="0" y2="1"><stop stop-color="#3aa9ff"/><stop offset="1" stop-color="#0727b8"/></linearGradient>
+    <linearGradient id="letters" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#b7b2d0"/></linearGradient>
+  </defs>
+  <rect width="900" height="900" rx="190" fill="url(#space)"/>
+  <g fill="#fff">
+    <circle cx="105" cy="125" r="5"/><circle cx="202" cy="205" r="4"/><circle cx="760" cy="128" r="5"/><circle cx="811" cy="253" r="4"/><circle cx="94" cy="430" r="4"/><circle cx="798" cy="489" r="5"/><circle cx="176" cy="700" r="4"/><circle cx="725" cy="697" r="4"/>
+  </g>
+  <g stroke="#a344ff" fill="#32117c">
+    <ellipse cx="187" cy="244" rx="112" ry="43" transform="rotate(-22 187 244)" stroke-width="12" fill="none"/>
+    <circle cx="187" cy="244" r="63" stroke-width="5"/>
+    <path d="M145 269c22-48 54-70 92-63 10 40-9 78-47 103-20-5-36-18-45-40z" fill="#5824bd" stroke="none"/>
+  </g>
+  <path d="M450 91 737 187v264c0 86-74 152-287 231-213-79-287-145-287-231V187z" fill="url(#badge)" stroke="#080616" stroke-width="20"/>
+  <g fill="#fff" opacity=".92"><path d="m256 249 7 17 17 7-17 7-7 17-7-17-17-7 17-7z"/><path d="m661 262 6 14 14 6-14 6-6 14-6-14-14-6 14-6z"/><circle cx="325" cy="320" r="5"/><circle cx="616" cy="329" r="5"/><circle cx="291" cy="383" r="4"/><circle cx="650" cy="390" r="4"/></g>
+  <g stroke="#11101a" stroke-width="17" stroke-linejoin="round">
+    <path d="M312 534c13-111 68-172 138-172s125 61 138 172l35 135H277z" fill="#f4f1ff"/>
+    <path d="M335 350c0-102 51-162 115-162s115 60 115 162c0 69-52 117-115 117s-115-48-115-117z" fill="#fff"/>
+    <path d="M361 345c0-62 34-105 89-105s89 43 89 105-34 89-89 89-89-27-89-89z" fill="url(#visor)"/>
+    <path d="M382 288c10-17 22-27 36-32" fill="none" stroke="#dff5ff" stroke-width="12" stroke-linecap="round"/>
+    <path d="M312 427 263 485l20 119 63-45M588 427l49 58-20 119-63-45" fill="#f7f5ff"/>
+    <path d="M412 490h76v65h-76z" fill="#d5d0e9"/>
+    <path d="M435 515h30m-15-15v30" stroke="#5c5680" stroke-width="9"/>
+    <path d="M280 494h-49v88h59M620 494h49v88h-59" fill="#f7f5ff"/>
+    <path d="M231 477h38v70h-38z" fill="#13bfff"/>
+  </g>
+  <path d="M107 679h686l-33 55H140z" fill="#080616"/>
+  <text x="450" y="727" text-anchor="middle" font-family="Arial Black,Arial,sans-serif" font-size="78" font-weight="900" letter-spacing="-2" fill="url(#letters)" stroke="#090613" stroke-width="9" paint-order="stroke">MAESTRA VIBE</text>
+  <path d="M267 773h366L450 863z" fill="#0646e9" stroke="#fff" stroke-width="11"/>
+  <path d="m315 793 141 35 108-29" fill="none" stroke="#fff" stroke-width="11"/>
++</svg>

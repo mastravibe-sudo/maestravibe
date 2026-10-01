@@ -54,16 +54,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     [myUsername]
   );
 
+  if (pathname.startsWith("/admin")) return <>{children}</>;
+
   return (
     <>
       <div className={`mx-auto flex min-h-screen max-w-7xl ${lightHome ? "bg-[#f4f7fb] text-slate-900" : ""}`}>
         {/* Left menu */}
         <aside className={`sticky top-0 hidden h-screen w-64 shrink-0 flex-col gap-2 border-r p-5 md:flex ${lightHome ? "border-slate-200 bg-white" : "border-white/10"}`}>
-          <Link
-            href="/"
-            className={`mb-6 bg-linear-to-r ${lightHome ? "from-blue-700 to-cyan-500" : "from-violet-400 to-pink-400"} bg-clip-text text-2xl font-extrabold text-transparent`}
-          >
-            Maestra Vibe
+          <Link href="/" className="mb-6 flex items-center gap-2">
+            <img src="/maestra-vibe-logo.svg" alt="" className="h-10 w-10 rounded-lg object-cover" />
+            <span className={`bg-linear-to-r ${lightHome ? "from-blue-700 to-cyan-500" : "from-violet-400 to-pink-400"} bg-clip-text text-xl font-extrabold text-transparent`}>Maestra Vibe</span>
           </Link>
           {nav.map((n) => (
             <Link
