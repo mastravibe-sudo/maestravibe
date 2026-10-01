@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import DbFeed from "@/components/DbFeed";
 import { useColorMode } from "@/lib/theme";
+import GetAppButton from "@/components/GetAppButton";
 
 type ProfileSummary = { id: string; username: string; name: string | null; bio: string | null; avatar_url: string | null };
 
@@ -84,6 +85,7 @@ export default function HomeDashboard() {
           <p className="mt-1 text-sm text-slate-500">Updates from real people in your circle.</p>
         </div>
         <div className="flex items-center gap-2">
+          <GetAppButton />
           <button onClick={toggleMode} aria-label={`Switch to ${mode === "light" ? "dark" : "light"} mode`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
             {mode === "light" ? "◐ Dark mode" : "☀ Light mode"}
           </button>

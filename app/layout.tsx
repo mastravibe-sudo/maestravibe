@@ -7,6 +7,11 @@ import { ColorModeProvider } from "@/lib/theme";
 export const metadata: Metadata = {
   title: "Maestra Vibe",
   description: "Apni vibe, apni profile.",
+  appleWebApp: {
+    capable: true,
+    title: "Maestra Vibe",
+    statusBarStyle: "default",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

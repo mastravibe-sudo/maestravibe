@@ -4,8 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
 import type { CSSProperties, ReactNode } from "react";
 import type { ProfileBlock, ProfileRecord } from "@/lib/profile-schema";
+import { createClient } from "@/lib/supabase/client";
+import { typeInfo, type PostType } from "@/lib/posts";
 
 export type BlockGeometry = { x: number; y: number; width: number; height: number };
+type RecentPost = { id: string; type: PostType; body: string; image_url: string | null; created_at: string; vibes: { user_id: string }[] };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
@@ -50,15 +53,27 @@ function safeHref(value: unknown) {
   }
 }
 
+function postAge(value: string) {
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h ago`;
+  return `${Math.floor(minutes / 1440)}d ago`;
+}
+
 function BlockContent({
   block,
   profile,
   stats,
+  recentPosts,
+  postsLoading,
   action,
 }: {
   block: ProfileBlock;
   profile: ProfileRecord;
   stats: { followers: number; following: number };
+  recentPosts: RecentPost[];
+  postsLoading: boolean;
   action?: ReactNode;
 }) {
   const config = block.config ?? {};
@@ -171,9 +186,29 @@ function BlockContent({
       ) : null}
 
       {block.type === "posts" ? (
-        <div>
-          <h2 className="font-semibold" style={{ fontFamily: profile.theme.fontHeading }}>{title === "Your section" ? "Recent posts" : title}</h2>
-          <p className="mt-2 text-sm opacity-65">Posts from @{profile.username}</p>
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="truncate font-semibold" style={{ fontFamily: profile.theme.fontHeading }}>{title === "Your section" ? "Recent posts" : title}</h2>
+            <span className="shrink-0 text-[0.72em] opacity-60">{recentPosts.length}</span>
+          </div>
+          <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-auto">
+            {postsLoading ? <p className="text-[0.8em] opacity-60">Loading posts...</p> : recentPosts.length ? recentPosts.map((post) => (
+              <article key={post.id} className="flex gap-2 rounded-lg border border-white/10 bg-black/10 p-2">
+                {post.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={post.image_url} alt="" className="h-14 w-14 shrink-0 rounded-md object-cover" />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2 text-[0.7em] opacity-65">
+                    <span className="truncate">{typeInfo[post.type]?.label ?? "Post"}</span>
+                    <time className="shrink-0">{postAge(post.created_at)}</time>
+                  </div>
+                  {post.body ? <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-[0.82em] leading-snug">{post.body}</p> : null}
+                  <p className="mt-1 text-[0.68em] opacity-60">🔥 {post.vibes?.length ?? 0}</p>
+                </div>
+              </article>
+            )) : <p className="text-[0.8em] opacity-60">No posts yet.</p>}
+          </div>
         </div>
       ) : null}
 
@@ -208,6 +243,8 @@ export default function ProfileCanvas({
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState({ width: 800, height: 960 });
+  const [recentPosts, setRecentPosts] = useState<RecentPost[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
 
   useEffect(() => {
     const element = stageRef.current;
@@ -218,6 +255,24 @@ export default function ProfileCanvas({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadPosts = async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("posts")
+        .select("id,type,body,image_url,created_at,vibes(user_id)")
+        .eq("user_id", profile.id)
+        .order("created_at", { ascending: false })
+        .limit(6);
+      if (!active) return;
+      setRecentPosts(error ? [] : ((data ?? []) as unknown as RecentPost[]));
+      setPostsLoading(false);
+    };
+    void loadPosts();
+    return () => { active = false; };
+  }, [profile.id]);
 
   const background = profile.banner_url
     ? `linear-gradient(rgba(8, 10, 20, 0.52), rgba(8, 10, 20, 0.7)), url("${profile.banner_url}")`
@@ -242,7 +297,7 @@ export default function ProfileCanvas({
         const geometry = getBlockGeometry(block, index);
         if (block.style?.hidden === true && !editable) return null;
         const selected = block.id === selectedBlockId;
-        const content = <BlockContent block={block} profile={profile} stats={stats} action={block.type === "header" ? action : undefined} />;
+        const content = <BlockContent block={block} profile={profile} stats={stats} recentPosts={recentPosts} postsLoading={postsLoading} action={block.type === "header" ? action : undefined} />;
 
         if (!editable) {
           return (

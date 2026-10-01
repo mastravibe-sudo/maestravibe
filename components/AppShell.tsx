@@ -15,6 +15,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [myUsername, setMyUsername] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    void navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
 
     const supabase = createClient();
