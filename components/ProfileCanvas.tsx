@@ -1,3 +1,4 @@
+// path: maestra-vibe/components/ProfileCanvas.tsx  (poori file replace karo)
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -84,7 +85,7 @@ function BlockContent({
   const links = Array.isArray(config.links) ? config.links.filter((item): item is { text?: string; href?: string } => !!item && typeof item === "object") : [];
   const images = Array.isArray(config.images) ? config.images.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
   const shellStyle: CSSProperties = {
-    backgroundColor: asString(style.backgroundColor, "rgba(255,255,255,0.08)"),
+    backgroundColor: style.textOnly === true ? "transparent" : asString(style.backgroundColor, "rgba(255,255,255,0.08)"),
     color: asString(style.textColor, profile.theme.text),
     fontFamily: asString(style.fontFamily, profile.theme.fontBody),
     fontSize: `${clamp(isNumber(style.fontSize) ? style.fontSize : 16, 10, 52)}px`,
@@ -100,7 +101,7 @@ function BlockContent({
   if (block.type === "spacer") return null;
 
   return (
-    <div className="h-full w-full overflow-auto border border-white/10 p-4 shadow-lg backdrop-blur-sm" style={shellStyle}>
+    <div className={`h-full w-full overflow-auto p-4 ${style.textOnly === true ? "" : "border border-white/10 shadow-lg backdrop-blur-sm"}`} style={shellStyle}>
       {block.type === "header" ? (
         <div className="flex h-full items-center gap-4">
           {profile.avatar_url ? (
@@ -274,18 +275,20 @@ export default function ProfileCanvas({
     return () => { active = false; };
   }, [profile.id]);
 
-  const background = profile.banner_url
+  // "background" shorthand ko backgroundImage + backgroundColor mein toda hai (React warning se bachne ke liye)
+  const backgroundImage = profile.banner_url
     ? `linear-gradient(rgba(8, 10, 20, 0.52), rgba(8, 10, 20, 0.7)), url("${profile.banner_url}")`
     : profile.theme.backgroundType === "gradient"
       ? profile.theme.backgroundValue
-      : profile.theme.page;
+      : "none";
 
   return (
     <div
       ref={stageRef}
       className={`profile-canvas-stage relative isolate mx-auto w-full overflow-hidden border border-white/15 ${editable ? "rounded-xl" : "rounded-[28px] shadow-2xl"}`}
       style={{
-        background,
+        backgroundColor: profile.theme.page,
+        backgroundImage,
         backgroundSize: "cover",
         backgroundPosition: "center",
         color: profile.theme.text,
@@ -295,7 +298,7 @@ export default function ProfileCanvas({
       {editable ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "linear-gradient(to right, rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,.08) 1px, transparent 1px)", backgroundSize: "5% 5%" }} /> : null}
       {blocks.map((block, index) => {
         const geometry = getBlockGeometry(block, index);
-        if (block.style?.hidden === true && !editable) return null;
+        if (block.style?.hidden === true && !block.locked && !editable) return null;
         const selected = block.id === selectedBlockId;
         const content = <BlockContent block={block} profile={profile} stats={stats} recentPosts={recentPosts} postsLoading={postsLoading} action={block.type === "header" ? action : undefined} />;
 
@@ -322,7 +325,7 @@ export default function ProfileCanvas({
             dragHandleClassName="profile-block-handle"
             enableResizing={selected}
             resizeHandleStyles={{
-              bottomRight: { width: 14, height: 14, right: -5, bottom: -5, borderRadius: 4, background: "#c4b5fd", border: "2px solid #18181b" },
+              bottomRight: { width: 28, height: 28, right: -10, bottom: -10, borderRadius: 8, background: "#c4b5fd", border: "2px solid #18181b" },
             }}
             className={selected ? "group z-20 ring-2 ring-violet-300" : "group z-10 hover:ring-1 hover:ring-white/50"}
             onMouseDown={() => onSelectBlock?.(block.id)}
@@ -338,9 +341,10 @@ export default function ProfileCanvas({
               height: clamp((element.offsetHeight / stageSize.height) * 100, 4, 100 - (position.y / stageSize.height) * 100),
             })}
           >
-            <div className="h-full w-full">
-              <div className={`profile-block-handle absolute -top-6 left-0 cursor-move rounded-t bg-zinc-950/90 px-2 py-1 text-[10px] font-semibold uppercase text-violet-200 transition ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-                {block.type} · drag
+            <div id={`block-${block.id}`} onClick={() => onSelectBlock?.(block.id)} className="h-full w-full scroll-mt-28">
+              <div className={`profile-block-handle absolute left-1 top-1 z-10 flex min-h-9 min-w-9 cursor-grab touch-none items-center gap-1 rounded-md bg-zinc-950/90 px-2 text-[10px] font-semibold uppercase text-violet-200 active:cursor-grabbing ${selected ? "ring-1 ring-violet-300" : "opacity-80"}`}>
+                <span aria-hidden="true" className="text-base leading-none">⠿</span>
+                {block.type}
               </div>
               {content}
             </div>

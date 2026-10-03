@@ -1,3 +1,4 @@
+// path: maestra-vibe/components/ProfileStudio.tsx  (poori file replace karo)
 "use client";
 
 import { useMemo, useRef, useState } from "react";
@@ -160,16 +161,16 @@ export default function ProfileStudio({
 
   const selectCanvasBlock = (id: string) => {
     setSelectedId(id);
-    if (window.matchMedia("(max-width: 1279px)").matches) {
+    if (window.matchMedia("(max-width: 1023px)").matches) {
       setMobileInspectorTab("section");
       setMobileInspectorOpen(true);
+      window.setTimeout(() => document.getElementById(`block-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
     }
   };
 
   const openMobileInspector = (tab: "section" | "page") => {
     setMobileInspectorTab(tab);
     setMobileInspectorOpen(true);
-    window.setTimeout(() => inspectorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
 
   const addBlock = (type: BlockType) => {
@@ -189,19 +190,19 @@ export default function ProfileStudio({
   };
 
   const toggleSelected = () => {
-    if (!selectedBlock) return;
+    if (!selectedBlock || selectedBlock.locked) return;
     setBlockStyle(selectedBlock.id, "hidden", selectedBlock.style.hidden !== true);
   };
 
   const removeSelected = () => {
     if (!selectedBlock) return;
     if (selectedBlock.locked) {
-      setBlockStyle(selectedBlock.id, "hidden", true);
-    } else {
-      setBlocks((current) => current.filter((block) => block.id !== selectedBlock.id));
-      const next = blocks.find((block) => block.id !== selectedBlock.id);
-      setSelectedId(next?.id ?? null);
+      setError("This section belongs to every profile. You can move, resize and restyle it, but not remove it.");
+      return;
     }
+    setBlocks((current) => current.filter((block) => block.id !== selectedBlock.id));
+    const next = blocks.find((block) => block.id !== selectedBlock.id);
+    setSelectedId(next?.id ?? null);
   };
 
   const applyTemplate = (templateId: TemplateId) => {
@@ -288,14 +289,14 @@ export default function ProfileStudio({
           position,
           width: block.width,
           config: block.config,
-          style: { ...block.style, ...geometry },
+          style: block.locked ? { ...block.style, ...geometry, hidden: false } : { ...block.style, ...geometry },
           visibility: block.visibility,
         };
 
         if (block.id.startsWith("draft-")) {
           const { data, error: insertError } = await supabase
             .from("profile_blocks")
-            .insert({ profile_id: profile.id, type: block.type, locked: false, ...values })
+            .insert({ profile_id: profile.id, type: block.type, ...values })
             .select("id")
             .single();
           if (insertError) throw new Error(`New section: ${insertError.message}`);
@@ -358,7 +359,7 @@ export default function ProfileStudio({
   );
 
   return (
-    <main className="mx-auto max-w-375 px-3 py-5 text-zinc-100 sm:px-5">
+    <main className={`mx-auto max-w-375 px-3 py-5 text-zinc-100 sm:px-5 ${mobileInspectorOpen ? "pb-[52vh]" : ""} lg:pb-5`}>
       <header className="sticky top-0 z-30 -mx-3 mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-zinc-950/95 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-300">Profile studio / @{profile.username}</p>
@@ -391,7 +392,7 @@ export default function ProfileStudio({
         </label>
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="min-w-0 rounded-xl border border-white/10 bg-zinc-900/60 p-2 sm:p-4">
           <div className="mb-3 flex items-center justify-between px-1 text-xs text-zinc-500">
             <span>Canvas</span><span>{blocks.filter((block) => block.style.hidden !== true).length} visible sections</span>
@@ -407,7 +408,7 @@ export default function ProfileStudio({
           />
         </section>
 
-        <div className="fixed inset-x-3 bottom-19 z-40 mx-auto flex max-w-md gap-2 rounded-xl border border-white/15 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur xl:hidden">
+        <div className={`fixed inset-x-3 bottom-19 z-40 mx-auto max-w-md gap-2 rounded-xl border border-white/15 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur ${mobileInspectorOpen ? "hidden" : "flex"} lg:hidden`}>
           <button onClick={() => openMobileInspector("section")} className="min-w-0 flex-1 truncate rounded-lg bg-zinc-800 px-3 py-2.5 text-sm font-medium text-white">
             Edit {selectedBlock ? selectedBlock.type : "section"}
           </button>
@@ -416,8 +417,10 @@ export default function ProfileStudio({
           </button>
         </div>
 
-        <aside ref={inspectorRef} className={`min-w-0 scroll-mt-16 space-y-3 ${mobileInspectorOpen ? "block" : "hidden"} xl:block`}>
-          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${mobileInspectorTab === "page" ? "block" : "hidden xl:block"}`}>
+        <aside ref={inspectorRef} className={`min-w-0 space-y-3 overflow-y-auto bg-zinc-950 p-3 ${mobileInspectorOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[48vh] rounded-t-2xl border-t border-white/15 shadow-2xl" : "hidden"} lg:sticky lg:inset-x-auto lg:bottom-auto lg:top-24 lg:z-10 lg:block lg:max-h-[calc(100vh-7rem)] lg:rounded-xl lg:border lg:border-white/10 lg:shadow-none`}>
+          <button onClick={() => setMobileInspectorOpen(false)} className="ml-auto block rounded-full bg-zinc-800 px-3 py-1.5 text-xs lg:hidden">Close ✕</button>
+
+          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${mobileInspectorTab === "page" ? "block" : "hidden lg:block"}`}>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold">Page design</h2>
               <select value={identity.template} onChange={(event) => applyTemplate(event.target.value as TemplateId)} className="max-w-28 rounded-md border border-white/10 bg-zinc-950 px-2 py-1.5 text-xs">
@@ -455,12 +458,12 @@ export default function ProfileStudio({
             </div>
           </section>
 
-          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${mobileInspectorTab === "section" ? "block" : "hidden xl:block"}`}>
+          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${mobileInspectorTab === "section" ? "block" : "hidden lg:block"}`}>
             {selectedBlock ? (
               <>
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <h2 className="text-sm font-semibold capitalize">{selectedBlock.type} settings</h2>
-                  <button onClick={removeSelected} className="text-xs text-red-300 hover:text-red-200">{selectedBlock.locked ? "Hide section" : "Remove"}</button>
+                  <button onClick={removeSelected} className="text-xs text-red-300 hover:text-red-200">{selectedBlock.locked ? "🔒 Locked" : "Remove"}</button>
                 </div>
 
                 {selectedBlock.type === "header" ? (
@@ -508,7 +511,11 @@ export default function ProfileStudio({
                 ) : null}
 
                 <label className="mb-3 block"><span className={smallLabel}>Section visibility</span><select value={selectedBlock.visibility} onChange={(event) => updateBlock(selectedBlock.id, (block) => ({ ...block, visibility: event.target.value as ProfileBlock["visibility"] }))} className={fieldClass}><option value="everyone">Everyone</option><option value="followers">Followers</option><option value="only_me">Only me</option></select></label>
-                <button onClick={toggleSelected} className="mb-3 w-full rounded-md border border-white/10 px-3 py-2 text-xs text-zinc-300 hover:bg-white/5">{selectedBlock.style.hidden === true ? "Show section" : "Hide section"}</button>
+                <button onClick={toggleSelected} disabled={selectedBlock.locked} className="mb-3 w-full rounded-md border border-white/10 px-3 py-2 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40">{selectedBlock.style.hidden === true ? "Show section" : "Hide section"}</button>
+                <label className="mb-3 flex items-center justify-between gap-3 text-xs text-zinc-300">
+                  <span>Text only (no card)</span>
+                  <input type="checkbox" checked={selectedBlock.style.textOnly === true} onChange={(event) => setBlockStyle(selectedBlock.id, "textOnly", event.target.checked)} className="h-5 w-5 accent-violet-400" />
+                </label>
 
                 <div className="space-y-3 border-t border-white/10 pt-3">
                   <p className={smallLabel}>Position and size</p>
