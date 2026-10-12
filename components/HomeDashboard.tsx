@@ -1,7 +1,9 @@
+// path: maestra-vibe/components/HomeDashboard.tsx  (poori file replace karo)
 "use client";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { Bell, Moon, ShoppingBag, Sun } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import DbFeed from "@/components/DbFeed";
 import { useColorMode } from "@/lib/theme";
@@ -9,9 +11,13 @@ import GetAppButton from "@/components/GetAppButton";
 
 type ProfileSummary = { id: string; username: string; name: string | null; bio: string | null; avatar_url: string | null };
 
+const panel = "home-dashboard-panel rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
+const toolBtn = "inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50";
+
 function Avatar({ person, size = "h-12 w-12" }: { person: ProfileSummary; size?: string }) {
   return (
     <span className={`flex ${size} shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-zinc-800 font-semibold text-zinc-200`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       {person.avatar_url ? <img src={person.avatar_url} alt="" className="h-full w-full object-cover" /> : (person.name || person.username).slice(0, 1).toUpperCase()}
     </span>
   );
@@ -75,29 +81,34 @@ export default function HomeDashboard() {
   };
 
   const profileCompletion = profile ? Math.round(([profile.name, profile.bio, profile.avatar_url].filter(Boolean).length / 3) * 100) : 0;
+  const followBtn = (person: ProfileSummary) =>
+    userId ? (
+      <button disabled={busyId === person.id} onClick={() => void follow(person)} className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700 disabled:opacity-50">
+        {busyId === person.id ? "..." : "Follow"}
+      </button>
+    ) : null;
 
   return (
     <main data-mode={mode} className="home-dashboard-root mx-auto min-h-screen max-w-6xl px-3 py-5 pb-24 text-slate-900 sm:px-5 sm:py-7">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-5">
+      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-700">Your community</p>
-          <h1 className="mt-1 text-2xl font-bold text-slate-950 sm:text-3xl">{profile?.name ? `Welcome back, ${profile.name}` : "Home"}</h1>
-          <p className="mt-1 text-sm text-slate-500">Updates from real people in your circle.</p>
+          <h1 className="text-2xl font-bold text-slate-950 sm:text-3xl">{profile?.name ? `Welcome back, ${profile.name}` : "Home"}</h1>
+          <p className="mt-1 text-sm text-slate-500">Updates from the people in your circle.</p>
         </div>
         <div className="flex items-center gap-2">
           <GetAppButton />
-          <button onClick={toggleMode} aria-label={`Switch to ${mode === "light" ? "dark" : "light"} mode`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
-            {mode === "light" ? "◐ Dark mode" : "☀ Light mode"}
+          <button onClick={toggleMode} aria-label={`Switch to ${mode === "light" ? "dark" : "light"} mode`} className={toolBtn}>
+            {mode === "light" ? <Moon className="h-4 w-4" aria-hidden="true" /> : <Sun className="h-4 w-4" aria-hidden="true" />}
+            <span className="hidden sm:inline">{mode === "light" ? "Dark mode" : "Light mode"}</span>
           </button>
-          {profile ? <Link href={`/${profile.username}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">View profile</Link> : null}
         </div>
       </header>
 
       {error ? <p role="alert" className="mb-4 rounded-lg border border-amber-400/20 bg-amber-950/30 p-3 text-sm text-amber-100">{error}</p> : null}
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="min-w-0">
-          <section className="home-dashboard-panel mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 space-y-5">
+          <section className={panel}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">Your circle</h2>
@@ -126,12 +137,28 @@ export default function HomeDashboard() {
             )}
           </section>
 
+          {/* Chhoti screen par Discover yahin dikhta hai (badi screen par right side mein) */}
+          {userId && discover.length ? (
+            <section className={`${panel} xl:hidden`}>
+              <h2 className="mb-3 text-sm font-semibold text-slate-900">Discover people</h2>
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {discover.map((person) => (
+                  <div key={person.id} className="flex w-36 shrink-0 flex-col items-center gap-2 rounded-lg border border-slate-100 p-3 text-center">
+                    <Link href={`/${person.username}`}><Avatar person={person} size="h-12 w-12" /></Link>
+                    <Link href={`/${person.username}`} className="w-full truncate text-xs font-medium text-slate-800">{person.name || person.username}</Link>
+                    {followBtn(person)}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <DbFeed />
         </div>
 
-        <aside className="space-y-4">
+        <aside className="hidden space-y-4 xl:sticky xl:top-6 xl:block">
           {profile ? (
-            <section className="home-dashboard-panel rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <section className={panel}>
               <div className="flex items-center gap-3">
                 <Link href={`/${profile.username}`}><Avatar person={profile} size="h-11 w-11" /></Link>
                 <div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{profile.name || profile.username}</p><p className="truncate text-xs text-slate-500">@{profile.username}</p></div>
@@ -141,14 +168,14 @@ export default function HomeDashboard() {
               <Link href={`/${profile.username}?edit=1`} className="mt-4 block rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700 hover:bg-slate-200">Edit profile</Link>
             </section>
           ) : !loading ? (
-            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <section className={panel}>
               <h2 className="text-sm font-semibold text-slate-900">Join your community</h2>
               <p className="mt-2 text-xs leading-relaxed text-slate-500">Create a profile to follow people and share updates.</p>
               <Link href="/login" className="mt-4 block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-semibold text-white hover:bg-blue-500">Log in or sign up</Link>
             </section>
           ) : null}
 
-          <section className="home-dashboard-panel rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <section className={panel}>
             <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-slate-900">Discover people</h2><Link href="/friends" className="text-xs text-blue-700">Friends</Link></div>
             {loading ? <p className="text-xs text-slate-500">Finding people...</p> : discover.length ? (
               <div className="space-y-3">
@@ -156,7 +183,7 @@ export default function HomeDashboard() {
                   <div key={person.id} className="flex min-w-0 items-center gap-2">
                     <Link href={`/${person.username}`}><Avatar person={person} size="h-9 w-9" /></Link>
                     <Link href={`/${person.username}`} className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-slate-800">{person.name || person.username}</p><p className="truncate text-[10px] text-slate-500">@{person.username}</p></Link>
-                    {userId ? <button disabled={busyId === person.id} onClick={() => void follow(person)} className="shrink-0 rounded-md border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:border-blue-300 hover:text-blue-700 disabled:opacity-50">{busyId === person.id ? "..." : "Follow"}</button> : null}
+                    {followBtn(person)}
                   </div>
                 ))}
               </div>
@@ -164,8 +191,8 @@ export default function HomeDashboard() {
           </section>
 
           <nav aria-label="Explore" className="grid grid-cols-2 gap-2 text-xs">
-            <Link href="/notifications" className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm hover:bg-slate-50">🔔 Notifications</Link>
-            <Link href="/market" className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm hover:bg-slate-50">🛍 Market</Link>
+            <Link href="/notifications" className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm hover:bg-slate-50"><Bell className="h-4 w-4" aria-hidden="true" />Notifications</Link>
+            <Link href="/market" className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm hover:bg-slate-50"><ShoppingBag className="h-4 w-4" aria-hidden="true" />Market</Link>
           </nav>
         </aside>
       </div>

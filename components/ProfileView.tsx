@@ -1,21 +1,38 @@
+// path: maestra-vibe/components/ProfileView.tsx  (poori file replace karo)
 "use client";
 
 import Link from "next/link";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { ProfileRecord } from "@/lib/profile-schema";
+import type { ProfileBlock, ProfileRecord } from "@/lib/profile-schema";
 import ProfileCanvas from "@/components/ProfileCanvas";
 
 function getAccessibleBlocks(profile: ProfileRecord, isOwner: boolean, isFollowing: boolean) {
   return [...profile.blocks]
     .filter((block) => {
-      if (block.style.hidden === true) return false;
+      // Locked blocks (header, stats, posts) kabhi chhupte nahi
+      if (block.style.hidden === true && !block.locked) return false;
       if (isOwner) return true;
       if (block.visibility === "only_me") return false;
       if (block.visibility === "followers") return isFollowing;
       return true;
     })
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+}
+
+// Agar kisi profile ke blocks database mein hain hi nahi, to profile khali na dikhe
+function fallbackBlocks(profile: ProfileRecord): ProfileBlock[] {
+  return (["header", "stats", "about", "posts"] as const).map((type, position) => ({
+    id: `fallback-${type}`,
+    profile_id: profile.id,
+    type,
+    position,
+    width: "full",
+    config: {},
+    style: {},
+    visibility: "everyone",
+    locked: type !== "about",
+  }));
 }
 
 export default function ProfileView({
@@ -33,27 +50,21 @@ export default function ProfileView({
   const [followerCount, setFollowerCount] = useState(stats.followers);
   const [followError, setFollowError] = useState<string | null>(null);
   const theme = profile.theme;
-  const visibleBlocks = getAccessibleBlocks(profile, access.isOwner, isFollowing);
+  const visibleBlocks = profile.blocks.length === 0 ? fallbackBlocks(profile) : getAccessibleBlocks(profile, access.isOwner, isFollowing);
 
   const handleFollowToggle = async () => {
     if (!access.viewerId || access.isOwner) return;
     setFollowError(null);
     const supabase = createClient();
     if (isFollowing) {
-      const { error } = await supabase
-        .from("follows")
-        .delete()
-        .eq("follower_id", access.viewerId)
-        .eq("followed_id", profile.id);
+      const { error } = await supabase.from("follows").delete().eq("follower_id", access.viewerId).eq("followed_id", profile.id);
       if (error) return setFollowError(error.message);
       setIsFollowing(false);
       setFollowerCount((count) => Math.max(count - 1, 0));
       return;
     }
 
-    const { error } = await supabase
-      .from("follows")
-      .insert({ follower_id: access.viewerId, followed_id: profile.id });
+    const { error } = await supabase.from("follows").insert({ follower_id: access.viewerId, followed_id: profile.id });
     if (error) return setFollowError(error.message);
     setIsFollowing(true);
     setFollowerCount((count) => count + 1);
@@ -75,25 +86,23 @@ export default function ProfileView({
     <Link href={`/${profile.username}?edit=1`} className="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold" style={{ color: theme.buttonText, background: theme.accent, borderRadius: `${theme.radius}px` }}>
       Edit profile
     </Link>
+  ) : access.viewerId ? (
+    <button
+      onClick={handleFollowToggle}
+      className="shrink-0 px-4 py-2 text-sm font-semibold transition hover:brightness-110"
+      style={{
+        borderRadius: `${theme.radius}px`,
+        color: theme.buttonStyle === "filled" ? theme.buttonText : theme.accent,
+        background: theme.buttonStyle === "filled" ? theme.accent : "transparent",
+        border: theme.buttonStyle === "ghost" ? "1px solid transparent" : `1px solid ${theme.accent}`,
+      }}
+    >
+      {isFollowing ? "Following" : "Follow"}
+    </button>
   ) : (
-    access.viewerId ? (
-      <button
-        onClick={handleFollowToggle}
-        className="shrink-0 px-4 py-2 text-sm font-semibold transition hover:brightness-110"
-        style={{
-          borderRadius: `${theme.radius}px`,
-          color: theme.buttonStyle === "filled" ? theme.buttonText : theme.accent,
-          background: theme.buttonStyle === "filled" ? theme.accent : "transparent",
-          border: theme.buttonStyle === "ghost" ? "1px solid transparent" : `1px solid ${theme.accent}`,
-        }}
-      >
-        {isFollowing ? "Following" : "Follow"}
-      </button>
-    ) : (
-      <Link href="/login" className="shrink-0 px-4 py-2 text-sm font-semibold" style={{ color: theme.accent, border: `1px solid ${theme.accent}`, borderRadius: `${theme.radius}px` }}>
-        Log in to follow
-      </Link>
-    )
+    <Link href="/login" className="shrink-0 px-4 py-2 text-sm font-semibold" style={{ color: theme.accent, border: `1px solid ${theme.accent}`, borderRadius: `${theme.radius}px` }}>
+      Log in to follow
+    </Link>
   );
 
   return (
