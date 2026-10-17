@@ -1,134 +1,22 @@
-// path: maestra-vibe/components/DbFeed.tsx  (NEW file)
+// path: maestra-vibe/components/DbFeed.tsx  (poori file replace karo)
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { Bookmark, Flame, HandHeart, ImagePlus, MessageCircle, Play, Repeat2, Share2, Video } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { typeInfo, type PostType } from "@/lib/posts";
 import { useColorMode } from "@/lib/theme";
+import { typeMeta } from "@/components/postMeta";
+import PostComposer from "@/components/PostComposer";
+import PostViewer, { Avatar, ago, mediaOf, type Orig, type Row } from "@/components/PostViewer";
 
-const rgba = (hex: string, alpha: number) => {
-  const value = Number.parseInt(hex.slice(1), 16);
-  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
-};
-
-type Row = {
-  id: string;
-  type: PostType;
-  body: string;
-  image_url: string | null;
-  created_at: string;
-  user_id: string;
-  comments_closed: boolean;
-  profiles: { username: string; name: string; avatar: string; style: { accent?: string } | null };
-  vibes: { user_id: string }[];
-  comments: { id: string; body: string; pinned: boolean; created_at: string; profiles: { username: string; name: string } }[];
-};
-
-const ago = (d: string) => {
-  const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
-  if (m < 1) return "now";
-  if (m < 60) return `${m}m ago`;
-  if (m < 1440) return `${Math.floor(m / 60)}h ago`;
-  return `${Math.floor(m / 1440)}d ago`;
-};
-
-// Photo ko chhota karke WebP banata hai (R2 ki free storage bachane ke liye)
-function toWebp(file: File): Promise<Blob> {
-  return new Promise((res, rej) => {
-    const img = new Image();
-    img.onload = () => {
-      const k = Math.min(1, 900 / img.width);
-      const c = document.createElement("canvas");
-      c.width = img.width * k;
-      c.height = img.height * k;
-      c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
-      c.toBlob((b) => (b ? res(b) : rej(new Error("Could not read image."))), "image/webp", 0.72);
-    };
-    img.onerror = () => rej(new Error("Could not read image."));
-    img.src = URL.createObjectURL(file);
-  });
-}
-
-function Card({ row, me, onVibe, onComment }: { row: Row; me: string | null; onVibe: () => void; onComment: (t: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState("");
-  const a = row.profiles;
-  const accent = a.style?.accent ?? "#2563eb";
-  const liked = !!me && row.vibes.some((v) => v.user_id === me);
-  const comments = [...row.comments].sort((x, y) => Number(y.pinned) - Number(x.pinned));
-
-  return (
-    <article className="home-feed-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" style={{ borderLeft: `4px solid ${accent}` }}>
-      <header className="mb-3 flex items-center gap-3">
-        <Link href={`/${a.username}`} className="flex h-11 w-11 items-center justify-center rounded-full text-xl" style={{ background: rgba(accent, 0.9) }}>
-          {a.avatar}
-        </Link>
-        <div className="flex-1">
-          <Link href={`/${a.username}`} className="font-semibold hover:underline">
-            {a.name || a.username}
-          </Link>
-            <p className="text-sm text-slate-500">
-            @{a.username} · {ago(row.created_at)}
-          </p>
-        </div>
-        <span className="rounded-full px-3 py-1 text-xs font-medium" style={{ background: rgba(accent, 0.2), color: accent }}>
-          {typeInfo[row.type].icon} {typeInfo[row.type].label}
-        </span>
-      </header>
-
-      {row.body && <p className="whitespace-pre-wrap text-lg leading-relaxed">{row.body}</p>}
-      {row.image_url && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={row.image_url} alt="" className="mt-3 max-h-96 w-full rounded-xl object-cover" />
-      )}
-
-      <footer className="mt-4 flex gap-5 text-sm text-slate-500">
-        <button onClick={onVibe} className={liked ? "font-semibold text-orange-400" : "hover:text-white"}>
-          {row.type === "struggle" ? "🤝 Support" : "🔥 Vibe"} {row.vibes.length}
-        </button>
-        <button onClick={() => setOpen(!open)} className="hover:text-white">
-          💬 {comments.length}
-        </button>
-      </footer>
-
-      {open && (
-          <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
-          {comments.map((c) => (
-            <div key={c.id} className="text-sm">
-              <span className="font-semibold">{c.profiles.name || c.profiles.username}</span>{" "}
-              {c.pinned && <span className="text-xs text-violet-300">📌 pinned</span>}
-              <p className="text-slate-600">{c.body}</p>
-            </div>
-          ))}
-          {row.comments_closed ? (
-              <p className="text-sm text-slate-500">Comments are turned off for this post.</p>
-          ) : (
-            <div className="flex gap-2">
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Write a comment..."
-                className="min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
-              />
-              <button
-                onClick={() => {
-                  if (draft.trim()) {
-                    onComment(draft.trim());
-                    setDraft("");
-                  }
-                }}
-                className="rounded-full bg-violet-500 px-4 py-2 text-sm font-medium text-white"
-              >
-                Comment
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </article>
-  );
-}
+const SELECT =
+  "id,type,title,body,tags,location,media,image_url,created_at,user_id,comment_policy,comments_closed,share_policy,repost_of," +
+  "profiles!posts_user_id_fkey(username,name,avatar_url,style),vibes(user_id),saves(user_id)," +
+  "comments(id,body,pinned,created_at,user_id,profiles!comments_user_id_fkey(username,name,avatar_url))";
+const ORIG = "id,title,body,image_url,media,profiles!posts_user_id_fkey(username,name,avatar_url)";
+const card = "home-feed-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5";
+const stat = "flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900";
 
 export default function DbFeed() {
   const { mode } = useColorMode();
@@ -136,137 +24,168 @@ export default function DbFeed() {
   const [rows, setRows] = useState<Row[]>([]);
   const [me, setMe] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [type, setType] = useState<PostType>("vibe");
-  const [text, setText] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const deepLinked = useRef(false);
+
+  const flash = (t: string) => { setNote(t); setTimeout(() => setNote(""), 2200); };
+  const fail = (e: unknown) => {
+    const m = (e as { message?: string })?.message ?? "Something went wrong.";
+    setError(/row-level security|permission denied/i.test(m) ? "The author has limited this action on the post." : m);
+  };
 
   const load = useCallback(async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     setMe(user?.id ?? null);
-    const { data, error } = await supabase
-      .from("posts")
-      .select(
-        "id,type,body,image_url,created_at,user_id,comments_closed,profiles!posts_user_id_fkey(username,name,avatar,style),vibes(user_id),comments(id,body,pinned,created_at,profiles!comments_user_id_fkey(username,name))"
-      )
-      .order("created_at", { ascending: false })
-      .limit(30);
-    if (error) setError(error.message);
-    else setRows((data as unknown as Row[]) ?? []);
+    const { data, error: err } = await supabase.from("posts").select(SELECT).order("created_at", { ascending: false }).limit(40);
+    if (err) {
+      setError(/column|schema cache/i.test(err.message) ? "Database update needed: run supabase/migrations/post_settings.sql in the Supabase SQL Editor." : err.message);
+      setLoading(false);
+      return;
+    }
+    const list = (data as unknown as Row[]) ?? [];
+    const ids = [...new Set(list.map((r) => r.repost_of).filter((x): x is string => !!x))];
+    if (ids.length) {
+      const { data: originals } = await supabase.from("posts").select(ORIG).in("id", ids);
+      const map = new Map(((originals ?? []) as unknown as Orig[]).map((o) => [o.id, o]));
+      list.forEach((r) => { r.original = r.repost_of ? map.get(r.repost_of) ?? null : null; });
+    }
+    setRows(list);
     setLoading(false);
   }, [supabase]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
+    void load();
+    try { setHidden(JSON.parse(localStorage.getItem("mv-hidden") ?? "[]")); } catch { /* ignore */ }
   }, [load]);
 
-  const fail = (e: unknown) => setError((e as { message?: string })?.message ?? "Something went wrong.");
+  useEffect(() => {
+    if (deepLinked.current || !rows.length) return;
+    deepLinked.current = true;
+    const id = new URLSearchParams(window.location.search).get("post");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (id && rows.some((r) => r.id === id)) setOpenId(id);
+  }, [rows]);
 
-  const publish = async () => {
-    if (!me || (!text.trim() && !file)) return;
-    setBusy(true);
-    setError("");
-    try {
-      let image_url: string | null = null;
-      if (file) {
-        const blob = await toWebp(file);
-        const formData = new FormData();
-        formData.append("purpose", "post");
-        formData.append("file", blob, "post.webp");
-        const r = await fetch("/api/upload", {
-          method: "POST",
-          body: formData,
-        });
-        const result = (await r.json()) as { publicUrl?: string; error?: string };
-        if (!r.ok || !result.publicUrl) throw new Error(result.error ?? "Upload failed.");
-        image_url = result.publicUrl;
-      }
-      const { error } = await supabase.from("posts").insert({ user_id: me, type, body: text.trim(), image_url });
-      if (error) throw error;
-      setText("");
-      setFile(null);
-      await load();
-    } catch (e) {
-      fail(e);
-    }
-    setBusy(false);
-  };
-
-  const vibe = async (row: Row) => {
-    if (!me) return setError("Log in to react to posts.");
-    const liked = row.vibes.some((v) => v.user_id === me);
-    const { error } = liked
-      ? await supabase.from("vibes").delete().eq("post_id", row.id).eq("user_id", me)
-      : await supabase.from("vibes").insert({ post_id: row.id, user_id: me });
-    if (error) fail(error);
+  const run = async (job: PromiseLike<{ error: { message: string } | null }>) => {
+    const { error: err } = await job;
+    if (err) fail(err);
     await load();
   };
+  const need = () => setError("Log in to do that.");
 
-  const comment = async (row: Row, body: string) => {
-    if (!me) return setError("Log in to comment.");
-    const { error } = await supabase.from("comments").insert({ post_id: row.id, user_id: me, body });
-    if (error) fail(error);
-    await load();
+  const vibe = (r: Row) => !me ? need() : run(r.vibes.some((v) => v.user_id === me) ? supabase.from("vibes").delete().eq("post_id", r.id).eq("user_id", me) : supabase.from("vibes").insert({ post_id: r.id, user_id: me }));
+  const save = (r: Row) => !me ? need() : run(r.saves.some((s) => s.user_id === me) ? supabase.from("saves").delete().eq("post_id", r.id).eq("user_id", me) : supabase.from("saves").insert({ post_id: r.id, user_id: me }));
+  const repost = async (r: Row) => {
+    if (!me) return need();
+    await run(supabase.from("posts").insert({ user_id: me, type: r.type, body: "", repost_of: r.repost_of ?? r.id }));
+    flash("Reposted to your profile");
   };
+  const comment = (r: Row, body: string) => !me ? need() : run(supabase.from("comments").insert({ post_id: r.id, user_id: me, body }));
+  const report = async (r: Row, reason: string) => {
+    if (!me) return need();
+    await run(supabase.from("reports").insert({ reporter_id: me, post_id: r.id, reason: reason.slice(0, 300) }));
+    hide(r);
+    flash("Thanks. We will review this post.");
+  };
+  const hide = (r: Row) => {
+    const next = [...hidden, r.id];
+    setHidden(next);
+    try { localStorage.setItem("mv-hidden", JSON.stringify(next)); } catch { /* ignore */ }
+  };
+  const remove = async (r: Row) => { setOpenId(null); await run(supabase.from("posts").delete().eq("id", r.id)); };
+  const toggleComments = (r: Row) => run(supabase.from("posts").update({ comment_policy: r.comment_policy === "off" ? "everyone" : "off" }).eq("id", r.id));
+  const share = async (r: Row) => {
+    const url = `${window.location.origin}/?post=${r.id}`;
+    if (navigator.share) { try { await navigator.share({ title: r.title || "Maestra Vibe", url }); return; } catch { /* user cancelled */ } }
+    await navigator.clipboard?.writeText(url);
+    flash("Link copied");
+  };
+
+  const visible = rows.filter((r) => !hidden.includes(r.id));
+  const open = rows.find((r) => r.id === openId) ?? null;
 
   return (
     <section data-mode={mode} aria-label="Community feed" className="home-feed mx-auto max-w-3xl space-y-4 px-0 py-3 sm:py-5">
       {me ? (
-        <div className="home-feed-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="What's your vibe today?"
-            rows={2}
-            className="w-full resize-none bg-transparent text-base text-slate-900 outline-none placeholder:text-slate-400"
-          />
-          {file && <p className="text-sm text-slate-500">📷 {file.name}</p>}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              {(Object.keys(typeInfo) as PostType[]).map((k) => (
-                <button
-                  key={k}
-                  onClick={() => setType(k)}
-                  className={`rounded-full px-3 py-1 text-sm ${type === k ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`}
-                >
-                  {typeInfo[k].icon} {typeInfo[k].label}
-                </button>
-              ))}
-              <label className="cursor-pointer rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-600 hover:bg-slate-200">
-                📷 Photo
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-              </label>
-            </div>
-            <button
-              onClick={publish}
-              disabled={busy}
-              className="rounded-lg bg-blue-600 px-5 py-2 font-medium text-white hover:bg-blue-500 disabled:opacity-50"
-            >
-              {busy ? "Posting..." : "Post"}
-            </button>
-          </div>
+        <div className={`${card} flex items-center gap-3`}>
+          <button onClick={() => setCreating(true)} className="flex-1 rounded-full bg-slate-100 px-4 py-2.5 text-left text-sm text-slate-500 hover:bg-slate-200">What is your vibe today?</button>
+          <button onClick={() => setCreating(true)} aria-label="Add photo" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><ImagePlus className="h-5 w-5" /></button>
+          <button onClick={() => setCreating(true)} aria-label="Add video" className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><Video className="h-5 w-5" /></button>
         </div>
-      ) : (
-        !loading && (
-          <Link href="/login" className="home-feed-card block rounded-xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-600 shadow-sm hover:bg-slate-50">
-            Log in or sign up to share your vibe
-          </Link>
-        )
-      )}
+      ) : !loading ? (
+        <Link href="/login" className={`${card} block text-center text-sm text-slate-600 hover:bg-slate-50`}>Log in or sign up to share your vibe</Link>
+      ) : null}
 
-      {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      {note ? <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{note}</p> : null}
+      {error ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
 
-      {loading ? (
-        <p className="py-10 text-center text-slate-500">Loading posts...</p>
-      ) : rows.length === 0 ? (
-        <p className="py-10 text-center text-slate-500">No posts yet. Be the first to share your vibe.</p>
-      ) : (
-        rows.map((r) => <Card key={r.id} row={r} me={me} onVibe={() => vibe(r)} onComment={(t) => comment(r, t)} />)
-      )}
+      {loading ? <p className="py-10 text-center text-slate-500">Loading posts...</p> : visible.length === 0 && !error ? <p className="py-10 text-center text-slate-500">No posts yet. Be the first to share your vibe.</p> : null}
+
+      {visible.map((r) => {
+        const a = r.profiles;
+        const accent = a.style?.accent ?? "#2563eb";
+        const shown = r.original ?? r;
+        const m = mediaOf(shown)[0];
+        const { Icon, label } = typeMeta[r.type] ?? typeMeta.vibe;
+        const liked = !!me && r.vibes.some((v) => v.user_id === me);
+        const saved = !!me && r.saves.some((s) => s.user_id === me);
+        return (
+          <article key={r.id} className={card} style={{ borderLeft: `4px solid ${accent}` }}>
+            <header className="mb-3 flex items-center gap-3">
+              <Link href={`/${a.username}`}><Avatar p={a} size="h-11 w-11" /></Link>
+              <div className="min-w-0 flex-1">
+                <Link href={`/${a.username}`} className="block truncate font-semibold hover:underline">{a.name || a.username}</Link>
+                <p className="truncate text-sm text-slate-500">@{a.username} · {ago(r.created_at)}{r.repost_of ? " · reposted" : ""}</p>
+              </div>
+              <span className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium" style={{ background: `${accent}22`, color: accent }}><Icon className="h-3.5 w-3.5" aria-hidden="true" />{label}</span>
+            </header>
+
+            <button onClick={() => setOpenId(r.id)} className="block w-full text-left" aria-label="Open post">
+              {shown.title ? <h3 className="mb-1 text-lg font-bold">{shown.title}</h3> : null}
+              {r.body ? <p className="whitespace-pre-wrap text-base leading-relaxed">{r.body}</p> : null}
+              {r.original && !r.body ? <p className="text-sm text-slate-500">@{r.original.profiles.username}: {r.original.body.slice(0, 160)}</p> : null}
+              {m ? (
+                <span className="relative mt-3 block overflow-hidden rounded-xl bg-black">
+                  {m.type === "video" ? (
+                    <>
+                      <video src={`${m.url}#t=0.1`} preload="metadata" muted playsInline className="max-h-96 w-full object-cover" />
+                      <span className="absolute inset-0 flex items-center justify-center"><span className="rounded-full bg-black/60 p-4 text-white"><Play className="h-6 w-6" /></span></span>
+                    </>
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.url} alt="" className="max-h-96 w-full object-cover" />
+                  )}
+                </span>
+              ) : null}
+            </button>
+
+            <footer className="mt-4 flex items-center gap-5">
+              <button onClick={() => void vibe(r)} className={`${stat} ${liked ? "font-semibold text-orange-500" : ""}`} aria-label={r.type === "struggle" ? "Support" : "Vibe"}>
+                {r.type === "struggle" ? <HandHeart className="h-5 w-5" /> : <Flame className="h-5 w-5" />}{r.vibes.length}
+              </button>
+              <button onClick={() => setOpenId(r.id)} className={stat} aria-label="Comments"><MessageCircle className="h-5 w-5" />{r.comments.length}</button>
+              <button onClick={() => void repost(r)} disabled={r.share_policy === "nobody" && r.user_id !== me} className={`${stat} disabled:opacity-40`} aria-label="Repost"><Repeat2 className="h-5 w-5" /></button>
+              <button onClick={() => void share(r)} className={stat} aria-label="Share"><Share2 className="h-5 w-5" /></button>
+              <button onClick={() => void save(r)} className={`${stat} ml-auto ${saved ? "text-yellow-500" : ""}`} aria-label="Save"><Bookmark className={`h-5 w-5 ${saved ? "fill-current" : ""}`} /></button>
+            </footer>
+          </article>
+        );
+      })}
+
+      {open ? (
+        <PostViewer
+          row={open} me={me} onClose={() => setOpenId(null)}
+          onVibe={() => void vibe(open)} onSave={() => void save(open)} onRepost={() => void repost(open)} onShare={() => void share(open)}
+          onComment={(b) => void comment(open, b)} onReport={(why) => void report(open, why)} onHide={() => hide(open)}
+          onToggleComments={() => void toggleComments(open)} onDelete={() => void remove(open)}
+        />
+      ) : null}
+      {creating && me ? <PostComposer me={me} onClose={() => setCreating(false)} onPublished={() => { setCreating(false); void load(); flash("Your post is live"); }} /> : null}
     </section>
   );
 }

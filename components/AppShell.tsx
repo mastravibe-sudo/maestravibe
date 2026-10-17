@@ -51,7 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       { href: myUsername ? `/${myUsername}` : "/login", label: "My Profile", Icon: User },
       { href: "/friends", label: "Friends", Icon: Users },
       { href: "/notifications", label: "Notifications", Icon: Bell },
-      { href: "/market", label: "Market", Icon: ShoppingBag },
+      { href: "/market", label: "Maestra Market", Icon: ShoppingBag },
     ],
     [myUsername]
   );
@@ -94,7 +94,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             className={`flex min-w-0 flex-col items-center gap-0.5 text-[10px] ${pathname === href ? (lightHome ? "font-semibold text-blue-700" : "text-white") : lightHome ? "text-slate-500" : "text-zinc-500"}`}
           >
             <Icon className="h-5 w-5" aria-hidden="true" />
-            <span className="max-w-full truncate">{label}</span>
+            <span className="max-w-full truncate">{label.replace("Maestra ", "")}</span>
           </Link>
         ))}
       </nav>

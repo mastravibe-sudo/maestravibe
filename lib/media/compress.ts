@@ -4,8 +4,8 @@
 export const MEDIA_LIMITS = {
   imageMaxBytes: 70 * 1024,
   imageMaxEdge: 1080,
-  videoMaxSeconds: 60, // 1 minute
-  videoMaxBytes: 3 * 1024 * 1024, // 60 second ki video taqreeban 3 MB (360p)
+  videoMaxSeconds: 30, // har video 30 second tak
+  videoMaxBytes: 2 * 1024 * 1024, // 30 second ki video taqreeban 1.4 MB, 2 MB hard limit
 } as const;
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -79,7 +79,7 @@ export async function validateVideo(file: File): Promise<VideoMeta> {
   if (meta.duration > MEDIA_LIMITS.videoMaxSeconds) {
     const minutes = Math.floor(meta.duration / 60);
     const seconds = Math.round(meta.duration % 60);
-    throw new Error(`Videos can be up to 60 seconds. This one is ${minutes} min ${seconds} sec.`);
+    throw new Error(`Videos can be up to 30 seconds. This one is ${minutes} min ${seconds} sec.`);
   }
   return meta;
 }

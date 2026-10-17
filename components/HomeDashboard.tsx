@@ -192,7 +192,7 @@ export default function HomeDashboard() {
 
           <nav aria-label="Explore" className="grid grid-cols-2 gap-2 text-xs">
             <Link href="/notifications" className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm hover:bg-slate-50"><Bell className="h-4 w-4" aria-hidden="true" />Notifications</Link>
-            <Link href="/market" className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm hover:bg-slate-50"><ShoppingBag className="h-4 w-4" aria-hidden="true" />Market</Link>
+            <Link href="/market" className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm hover:bg-slate-50"><ShoppingBag className="h-4 w-4" aria-hidden="true" />Maestra Market</Link>
           </nav>
         </aside>
       </div>
