@@ -75,7 +75,16 @@ async function recordClip(file: File, start: number, filterCss: string, onProgre
   const dest = ac.createMediaStreamDestination();
   ac.createMediaElementSource(v).connect(dest);
   dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
-  const mime = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m));
+
+const mime = [
+  "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+  "video/mp4",
+  "video/webm;codecs=vp9,opus",
+  "video/webm;codecs=vp8,opus",
+  "video/webm",
+].find((m) => MediaRecorder.isTypeSupported(m));
+
+
   if (!mime) throw new Error("This browser cannot prepare videos. Please use an updated Chrome, Edge, Firefox or Safari.");
 const targetTotalBps = Math.floor(
   (MEDIA_LIMITS.videoMaxBytes * 0.92 * 8) / Math.max(len, 1)
