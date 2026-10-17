@@ -63,7 +63,7 @@ async function recordClip(file: File, start: number, filterCss: string, onProgre
   v.preload = "auto";
   await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error("This video could not be read.")); });
   const len = Math.min(MEDIA_LIMITS.videoMaxSeconds, v.duration - start);
-  const k = Math.min(1, 480 / Math.min(v.videoWidth, v.videoHeight));
+ const k = Math.min(1, 720 / Math.min(v.videoWidth, v.videoHeight));
   const w = Math.round((v.videoWidth * k) / 2) * 2, h = Math.round((v.videoHeight * k) / 2) * 2;
   const canvas = document.createElement("canvas");
   canvas.width = w;
@@ -77,7 +77,22 @@ async function recordClip(file: File, start: number, filterCss: string, onProgre
   dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
   const mime = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m));
   if (!mime) throw new Error("This browser cannot prepare videos. Please use an updated Chrome, Edge, Firefox or Safari.");
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 330_000, audioBitsPerSecond: 32_000 });
+const targetTotalBps = Math.floor(
+  (MEDIA_LIMITS.videoMaxBytes * 0.92 * 8) / Math.max(len, 1)
+);
+
+const audioBps = Math.min(
+  96_000,
+  Math.max(48_000, Math.floor(targetTotalBps * 0.12))
+);
+
+const videoBps = Math.max(300_000, targetTotalBps - audioBps);
+
+const rec = new MediaRecorder(stream, {
+  mimeType: mime,
+  videoBitsPerSecond: videoBps,
+  audioBitsPerSecond: audioBps,
+});
   const chunks: Blob[] = [];
   rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   const seeked = new Promise<void>((res) => { v.onseeked = () => res(); });
@@ -171,7 +186,11 @@ export default function PostComposer({ me, onClose, onPublished }: { me: string;
       } else if (file && kind === "video") {
         setStatus("Preparing your clip. Keep this tab open.");
         const clip = await recordClip(file, start, canFilter ? filterCss : "none", setProgress);
-        if (clip.size > MEDIA_LIMITS.videoMaxBytes) throw new Error(`This clip is ${(clip.size / 1048576).toFixed(1)} MB (limit 2 MB). Pick a calmer part of the video.`);
+if (clip.size > MEDIA_LIMITS.videoMaxBytes) {
+  throw new Error(
+    `This clip is ${(clip.size / 1048576).toFixed(1)} MB. Maximum size is 2.5 MB. Try a shorter clip.`
+  );
+}
         setStatus("Uploading...");
         media = [{ type: "video", url: await upload(clip, "post-video", `clip.${clip.type.includes("mp4") ? "mp4" : "webm"}`), bytes: clip.size, width: vmeta?.width, height: vmeta?.height }];
       }

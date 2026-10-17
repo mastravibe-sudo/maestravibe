@@ -5,7 +5,7 @@ export const MEDIA_LIMITS = {
   imageMaxBytes: 70 * 1024,
   imageMaxEdge: 1080,
   videoMaxSeconds: 30, // har video 30 second tak
-  videoMaxBytes: 2 * 1024 * 1024, // 30 second ki video taqreeban 1.4 MB, 2 MB hard limit
+videoMaxBytes: 2.5 * 1024 * 1024,
 } as const;
 
 function loadImage(src: string): Promise<HTMLImageElement> {

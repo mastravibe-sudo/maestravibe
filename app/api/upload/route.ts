@@ -3,7 +3,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { publicUrl, uploadObject } from "@/lib/r2";
 
-const LIMITS = { profile: 100 * 1024, post: 150 * 1024, video: 2 * 1024 * 1024 };
+const LIMITS = {
+  profile: 100 * 1024,
+  post: 150 * 1024,
+  video: 2.5 * 1024 * 1024,
+};
 const at = (b: Uint8Array, offset: number, sig: number[]) => sig.every((v, i) => b[offset + i] === v);
 const isWebp = (b: Uint8Array) => b.length >= 12 && at(b, 0, [0x52, 0x49, 0x46, 0x46]) && at(b, 8, [0x57, 0x45, 0x42, 0x50]);
 const isMp4 = (b: Uint8Array) => b.length >= 12 && at(b, 4, [0x66, 0x74, 0x79, 0x70]);
@@ -35,7 +39,7 @@ export async function POST(req: Request) {
 
   const max = isProfile ? LIMITS.profile : isPostImage ? LIMITS.post : LIMITS.video;
   if (file.size === 0 || file.size > max) {
-    const label = isPostVideo ? "Videos must be 30 seconds and about 2 MB or less." : `Images must be ${Math.round(max / 1024)} KB or less.`;
+    const label = isPostVideo ? "Videos must be 30 seconds and 2.5 MB or less." : `Images must be ${Math.round(max / 1024)} KB or less.`;
     return Response.json({ error: label }, { status: 413 });
   }
 
