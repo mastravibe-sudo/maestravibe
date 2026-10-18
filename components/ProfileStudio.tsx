@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 import type { ProfileBlock, ProfileRecord, ProfileTheme } from "@/lib/profile-schema";
 import { templateCatalog, type TemplateId } from "@/lib/templates";
 import ProfileCanvas, { getBlockGeometry, type BlockGeometry } from "@/components/ProfileCanvas";
+import { HeaderStylePicker } from "@/components/profile/HeaderStyles";
+import { StatsStylePicker } from "@/components/profile/StatsStyles";
 
 const MAX_IMAGE_BYTES = 100 * 1024;
 const IMAGE_QUALITIES = [0.86, 0.76, 0.66, 0.56, 0.46, 0.36, 0.28, 0.2];
@@ -133,7 +135,7 @@ export default function ProfileStudio({
   const [blocks, setBlocks] = useState<ProfileBlock[]>(() => profile.blocks.length ? profile.blocks : defaultBlocks(profile));
   const [selectedId, setSelectedId] = useState<string | null>(() => profile.blocks[0]?.id ?? null);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState<"avatar" | "banner" | null>(null);
+  const [uploading, setUploading] = useState<"avatar" | "banner" | "gallery" | null>(null);
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const [mobileInspectorTab, setMobileInspectorTab] = useState<"section" | "page">("section");
   const [error, setError] = useState<string | null>(null);
@@ -246,6 +248,32 @@ export default function ProfileStudio({
       if (!response.ok || !result.publicUrl) throw new Error(result.error || "Image upload failed.");
       setIdentity((current) => ({ ...current, [imageType === "avatar" ? "avatar_url" : "banner_url"]: result.publicUrl! }));
       setSuccess(`${imageType === "avatar" ? "Avatar" : "Banner"} ready (${Math.ceil(image.size / 1024)} KB). Save to publish it.`);
+    } catch (uploadError) {
+      setError(messageOf(uploadError, "Image upload failed."));
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  const uploadGallery = async (blockId: string, files: File[]) => {
+    const current = ((blocks.find((item) => item.id === blockId)?.config.images as string[]) ?? []).slice();
+    setUploading("gallery");
+    setError(null);
+    setSuccess(null);
+    try {
+      for (const file of files.slice(0, Math.max(0, 12 - current.length))) {
+        const image = await compressImage(file);
+        const formData = new FormData();
+        formData.append("purpose", "profile");
+        formData.append("imageType", "gallery");
+        formData.append("file", image, "gallery.webp");
+        const response = await fetch("/api/upload", { method: "POST", body: formData });
+        const result = await response.json() as { publicUrl?: string; error?: string };
+        if (!response.ok || !result.publicUrl) throw new Error(result.error || "Image upload failed.");
+        current.push(result.publicUrl);
+        setConfig(blockId, "images", [...current]);
+      }
+      setSuccess("Photos added. Save to publish them.");
     } catch (uploadError) {
       setError(messageOf(uploadError, "Image upload failed."));
     } finally {
@@ -469,9 +497,13 @@ export default function ProfileStudio({
                 {selectedBlock.type === "header" ? (
                   <>
                     <label className="mb-3 block"><span className={smallLabel}>Display name</span><input value={identity.name} onChange={(event) => setIdentity((current) => ({ ...current, name: event.target.value }))} className={fieldClass} /></label>
-                    <label className="mb-2 block"><span className={smallLabel}>Avatar URL</span><input value={identity.avatar_url} onChange={(event) => setIdentity((current) => ({ ...current, avatar_url: event.target.value }))} className={fieldClass} /></label>
-                    <label className="mb-3 block"><span className={smallLabel}>Banner URL</span><input value={identity.banner_url} onChange={(event) => setIdentity((current) => ({ ...current, banner_url: event.target.value }))} className={fieldClass} /></label>
+                    <div className="mb-3 flex flex-wrap items-center gap-2">{uploadControl("avatar")}{uploadControl("banner")}</div>
+                    <HeaderStylePicker style={selectedBlock.style} theme={theme} onChange={(key, value) => setBlockStyle(selectedBlock.id, key, value)} />
                   </>
+                ) : null}
+
+                {selectedBlock.type === "stats" ? (
+                  <StatsStylePicker style={selectedBlock.style} theme={theme} onChange={(key, value) => setBlockStyle(selectedBlock.id, key, value)} />
                 ) : null}
 
                 {selectedBlock.type === "about" ? (
@@ -506,9 +538,27 @@ export default function ProfileStudio({
                   </div>
                 ) : null}
 
-                {selectedBlock.type === "gallery" ? (
-                  <label className="mb-3 block"><span className={smallLabel}>Image URLs, one per line</span><textarea rows={4} value={((selectedBlock.config.images as string[]) ?? []).join("\n")} onChange={(event) => setConfig(selectedBlock.id, "images", event.target.value.split("\n").map((url) => url.trim()).filter(Boolean))} className={`${fieldClass} resize-y`} placeholder="https://image-url" /></label>
-                ) : null}
+                {selectedBlock.type === "gallery" ? (() => {
+                  const photos = (selectedBlock.config.images as string[]) ?? [];
+                  return (
+                    <div className="mb-3">
+                      <p className={smallLabel}>Photos ({photos.length}/12)</p>
+                      <div className="mb-2 grid grid-cols-4 gap-2">
+                        {photos.map((url, index) => (
+                          <div key={`${url}-${index}`} className="relative aspect-square overflow-hidden rounded-md bg-zinc-800">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={url} alt="" className="h-full w-full object-cover" />
+                            <button aria-label="Remove photo" onClick={() => setConfig(selectedBlock.id, "images", photos.filter((_item, itemIndex) => itemIndex !== index))} className="absolute right-0.5 top-0.5 rounded-full bg-black/70 px-1.5 text-xs text-white">×</button>
+                          </div>
+                        ))}
+                      </div>
+                      <label className="inline-flex cursor-pointer items-center rounded-md border border-white/10 px-3 py-2 text-xs text-zinc-300 hover:bg-white/5">
+                        {uploading === "gallery" ? "Uploading..." : photos.length >= 12 ? "Gallery is full" : "Add photos"}
+                        <input type="file" accept="image/*" multiple className="sr-only" disabled={uploading !== null || photos.length >= 12} onChange={(event) => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; if (files.length) void uploadGallery(selectedBlock.id, files); }} />
+                      </label>
+                    </div>
+                  );
+                })() : null}
 
                 <label className="mb-3 block"><span className={smallLabel}>Section visibility</span><select value={selectedBlock.visibility} onChange={(event) => updateBlock(selectedBlock.id, (block) => ({ ...block, visibility: event.target.value as ProfileBlock["visibility"] }))} className={fieldClass}><option value="everyone">Everyone</option><option value="followers">Followers</option><option value="only_me">Only me</option></select></label>
                 <button onClick={toggleSelected} disabled={selectedBlock.locked} className="mb-3 w-full rounded-md border border-white/10 px-3 py-2 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40">{selectedBlock.style.hidden === true ? "Show section" : "Hide section"}</button>

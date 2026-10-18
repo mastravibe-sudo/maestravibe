@@ -7,6 +7,8 @@ import type { CSSProperties, ReactNode } from "react";
 import type { ProfileBlock, ProfileRecord } from "@/lib/profile-schema";
 import { createClient } from "@/lib/supabase/client";
 import { typeInfo, type PostType } from "@/lib/posts";
+import { HeaderBlock, headerSkinStyle, parseHeaderStyle } from "@/components/profile/HeaderStyles";
+import { StatsBlock } from "@/components/profile/StatsStyles";
 
 export type BlockGeometry = { x: number; y: number; width: number; height: number };
 type RecentPost = { id: string; type: PostType; body: string; image_url: string | null; created_at: string; vibes: { user_id: string }[] };
@@ -68,6 +70,7 @@ function BlockContent({
   stats,
   recentPosts,
   postsLoading,
+  totals,
   action,
 }: {
   block: ProfileBlock;
@@ -75,6 +78,7 @@ function BlockContent({
   stats: { followers: number; following: number };
   recentPosts: RecentPost[];
   postsLoading: boolean;
+  totals: { posts: number; vibes: number };
   action?: ReactNode;
 }) {
   const config = block.config ?? {};
@@ -83,7 +87,7 @@ function BlockContent({
   const body = asString(config.body, block.type === "about" ? profile.bio : "Add your text in the inspector.");
   const buttonStyle = asString(style.buttonStyle, profile.theme.buttonStyle);
   const links = Array.isArray(config.links) ? config.links.filter((item): item is { text?: string; href?: string } => !!item && typeof item === "object") : [];
-  const images = Array.isArray(config.images) ? config.images.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+  const images = Array.isArray(config.images) ? config.images.filter((item): item is string => typeof item === "string" && /^https:\/\//i.test(item)) : [];
   const shellStyle: CSSProperties = {
     backgroundColor: style.textOnly === true ? "transparent" : asString(style.backgroundColor, "rgba(255,255,255,0.08)"),
     color: asString(style.textColor, profile.theme.text),
@@ -95,6 +99,15 @@ function BlockContent({
     borderRadius: `${clamp(isNumber(style.borderRadius) ? style.borderRadius : 18, 0, 48)}px`,
   };
 
+  if (block.type === "header" && style.textOnly !== true) {
+    const skin = headerSkinStyle(parseHeaderStyle(style.headerStyle).skin, profile.theme);
+    if (style.backgroundColor === undefined) {
+      shellStyle.backgroundColor = skin.backgroundColor;
+      shellStyle.boxShadow = skin.boxShadow;
+    }
+    if (style.textColor === undefined) shellStyle.color = skin.color;
+  }
+
   if (block.type === "divider") {
     return <div aria-hidden="true" className="h-full w-full border-t" style={{ borderColor: asString(style.backgroundColor, profile.theme.border) }} />;
   }
@@ -102,36 +115,9 @@ function BlockContent({
 
   return (
     <div className={`h-full w-full overflow-auto p-4 ${style.textOnly === true ? "" : "border border-white/10 shadow-lg backdrop-blur-sm"}`} style={shellStyle}>
-      {block.type === "header" ? (
-        <div className="flex h-full items-center gap-4">
-          {profile.avatar_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={profile.avatar_url} alt="" className="h-16 w-16 shrink-0 rounded-full border-2 border-white/20 object-cover" />
-          ) : (
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-violet-600 text-2xl font-semibold text-white">
-              {(profile.name || profile.username).slice(0, 1).toUpperCase()}
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate font-bold" style={{ fontFamily: profile.theme.fontHeading, fontSize: "1.55em" }}>
-              {profile.name || profile.username}
-            </h1>
-            <p className="truncate opacity-70">@{profile.username}</p>
-          </div>
-          {action}
-        </div>
-      ) : null}
+      {block.type === "header" ? <HeaderBlock profile={profile} style={style} action={action} /> : null}
 
-      {block.type === "stats" ? (
-        <div className="grid h-full grid-cols-2 gap-2 sm:grid-cols-4">
-          {[{ name: "Followers", value: stats.followers }, { name: "Following", value: stats.following }, { name: "Vibes", value: 0 }, { name: "Posts", value: 0 }].map((item) => (
-            <div key={item.name} className="flex flex-col items-center justify-center rounded-xl border border-white/10 bg-black/10 px-2 text-center">
-              <span className="text-xl font-bold">{item.value}</span>
-              <span className="text-[0.72em] uppercase opacity-65">{item.name}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {block.type === "stats" ? <StatsBlock stats={{ ...stats, ...totals }} style={style} theme={profile.theme} /> : null}
 
       {block.type === "about" || block.type === "text" ? (
         <div>
@@ -181,7 +167,7 @@ function BlockContent({
               // eslint-disable-next-line @next/next/no-img-element
               <img key={`${image}-${index}`} src={image} alt="Gallery item" className="h-full min-h-16 w-full rounded-lg object-cover" />
             ))}
-            {!images.length ? <span className="text-sm opacity-60">Add image URLs in the inspector.</span> : null}
+            {!images.length ? <span className="text-sm opacity-60">Add photos in the inspector.</span> : null}
           </div>
         </div>
       ) : null}
@@ -246,6 +232,7 @@ export default function ProfileCanvas({
   const [stageSize, setStageSize] = useState({ width: 800, height: 960 });
   const [recentPosts, setRecentPosts] = useState<RecentPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
+  const [totals, setTotals] = useState({ posts: 0, vibes: 0 });
 
   useEffect(() => {
     const element = stageRef.current;
@@ -270,6 +257,10 @@ export default function ProfileCanvas({
       if (!active) return;
       setRecentPosts(error ? [] : ((data ?? []) as unknown as RecentPost[]));
       setPostsLoading(false);
+      const { data: all } = await supabase.from("posts").select("id,vibes(count)").eq("user_id", profile.id).limit(1000);
+      if (!active) return;
+      const rows = (all ?? []) as unknown as { vibes: { count: number }[] }[];
+      setTotals({ posts: rows.length, vibes: rows.reduce((n, p) => n + (p.vibes?.[0]?.count ?? 0), 0) });
     };
     void loadPosts();
     return () => { active = false; };
@@ -300,7 +291,7 @@ export default function ProfileCanvas({
         const geometry = getBlockGeometry(block, index);
         if (block.style?.hidden === true && !block.locked && !editable) return null;
         const selected = block.id === selectedBlockId;
-        const content = <BlockContent block={block} profile={profile} stats={stats} recentPosts={recentPosts} postsLoading={postsLoading} action={block.type === "header" ? action : undefined} />;
+        const content = <BlockContent block={block} profile={profile} stats={stats} recentPosts={recentPosts} postsLoading={postsLoading} totals={totals} action={block.type === "header" ? action : undefined} />;
 
         if (!editable) {
           return (
