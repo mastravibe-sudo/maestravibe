@@ -63,7 +63,7 @@ export default function MaestraMarket() {
   const cart = items.filter((i) => i.kind === "cart");
   const saved = items.filter((i) => i.kind === "saved");
   const total = cart.reduce((n, i) => n + i.price * i.qty, 0);
-  const tabBtn = (t: typeof tab, label: string, n?: number) => <button key={t} onClick={() => setTab(t)} className={`h-11 flex-1 rounded-full text-sm font-medium ${tab === t ? `${BRAND} text-white shadow` : "text-slate-500"}`}>{label}{n ? ` (${n})` : ""}</button>;
+  const tabBtn = (t: typeof tab, label: string, n?: number) => <button key={t} onClick={() => setTab(t)} className={`h-11 flex-1 rounded-full text-sm font-medium ${tab === t ? `${BRAND} text-white shadow` : "text-[#a8a2c9]"}`}>{label}{n ? ` (${n})` : ""}</button>;
   const open = (url: string | null) => url && window.open(url, "_blank", "noopener,noreferrer");
   const btn = "flex h-11 items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-medium active:scale-95";
 
@@ -71,35 +71,35 @@ export default function MaestraMarket() {
     <main className="mx-auto min-h-screen max-w-5xl px-3 py-5 pb-24 sm:px-5">
       <header className="mb-4">
         <h1 className={`${BRAND} bg-clip-text text-3xl font-extrabold text-transparent`}>Maestra Market</h1>
-        <p className="mt-1 text-sm text-slate-500">Shop products from Maestra Market. Orders and payment are completed on Maestra Market.</p>
+        <p className="mt-1 text-sm text-[#a8a2c9]">Shop products from Maestra Market. Orders and payment are completed on Maestra Market.</p>
       </header>
-      <div className="mb-4 flex gap-1 rounded-full bg-slate-100/60 p-1">{tabBtn("shop", "Shop")}{tabBtn("saved", "Saved", saved.length)}{tabBtn("cart", "Cart", cart.length)}</div>
-      {error ? <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+      <div className="mb-4 flex gap-1 rounded-full bg-[#141028] p-1">{tabBtn("shop", "Shop")}{tabBtn("saved", "Saved", saved.length)}{tabBtn("cart", "Cart", cart.length)}</div>
+      {error ? <p role="alert" className="mb-3 rounded-lg bg-red-500/15 p-3 text-sm text-red-300">{error}</p> : null}
 
       {tab === "shop" ? (
         <>
-          <div className="mb-4 flex gap-2 overflow-x-auto pb-1">{cats.map((c) => <button key={c} onClick={() => setCat(c)} className={`h-10 shrink-0 rounded-full border px-4 text-sm ${cat === c ? "border-transparent bg-slate-900 text-white" : "border-slate-200 text-slate-600"}`}>{c}</button>)}</div>
-          {loading ? <p className="py-12 text-center text-slate-500">Loading products...</p> : shown.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center">
-              <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-slate-400" aria-hidden="true" />
+          <div className="mb-4 flex gap-2 overflow-x-auto pb-1">{cats.map((c) => <button key={c} onClick={() => setCat(c)} className={`h-10 shrink-0 rounded-full border px-4 text-sm ${cat === c ? "border-transparent bg-[#f4f2ff] text-[#09061a]" : "border-white/20 text-[#c9c4e8]"}`}>{c}</button>)}</div>
+          {loading ? <p className="py-12 text-center text-[#a8a2c9]">Loading products...</p> : shown.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-white/20 p-8 text-center">
+              <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-[#a8a2c9]" aria-hidden="true" />
               <p className="font-medium">{apiError || "No products found."}</p>
-              <a href={base} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-violet-600">Visit Maestra Market <ExternalLink className="h-4 w-4" /></a>
+              <a href={base} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-violet-300">Visit Maestra Market <ExternalLink className="h-4 w-4" /></a>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
               {shown.map((p) => (
-                <article key={p.id} className="home-feed-card overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                  <div className="relative aspect-square bg-slate-100">
+                <article key={p.id} className="overflow-hidden rounded-2xl border border-white/10 bg-[#141028] shadow-sm">
+                  <div className="relative aspect-square bg-[#1d1840]">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     {p.image ? <img src={p.image} alt={p.title} loading="lazy" className="h-full w-full object-cover" /> : null}
-                    <button onClick={() => void toggle(p, "saved")} aria-label={has(p.id, "saved") ? "Remove from saved" : "Save"} className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-white/90 text-pink-500 shadow"><Heart className={`h-5 w-5 ${has(p.id, "saved") ? "fill-current" : ""}`} /></button>
+                    <button onClick={() => void toggle(p, "saved")} aria-label={has(p.id, "saved") ? "Remove from saved" : "Save"} className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-[#09061a]/80 text-pink-500 shadow"><Heart className={`h-5 w-5 ${has(p.id, "saved") ? "fill-current" : ""}`} /></button>
                   </div>
                   <div className="space-y-2 p-3">
                     <h2 className="line-clamp-2 min-h-10 text-sm font-medium">{p.title}</h2>
                     <p className="text-lg font-bold">{money(p.price, p.currency)}</p>
                     <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => void toggle(p, "cart")} className={`${btn} ${has(p.id, "cart") ? "bg-slate-100 text-slate-700" : `${BRAND} text-white`}`}><ShoppingCart className="h-4 w-4" aria-hidden="true" />{has(p.id, "cart") ? "In cart" : "Add"}</button>
-                      <button onClick={() => open(p.url)} className={`${btn} border border-slate-200 text-slate-700`}>Buy</button>
+                      <button onClick={() => void toggle(p, "cart")} className={`${btn} ${has(p.id, "cart") ? "bg-[#1d1840] text-[#e4e0ff]" : `${BRAND} text-white`}`}><ShoppingCart className="h-4 w-4" aria-hidden="true" />{has(p.id, "cart") ? "In cart" : "Add"}</button>
+                      <button onClick={() => open(p.url)} className={`${btn} border border-white/20 text-[#e4e0ff]`}>Buy</button>
                     </div>
                   </div>
                 </article>
@@ -110,28 +110,28 @@ export default function MaestraMarket() {
       ) : null}
 
       {tab !== "shop" && !me ? <Link href="/login" className={`${BRAND} block rounded-xl py-3 text-center font-semibold text-white`}>Log in to use your {tab}</Link> : null}
-      {tab === "saved" && me ? (saved.length ? <div className="space-y-2">{saved.map((i) => <ItemRow key={i.product_id} i={i} onRemove={() => void remove(i)} onOpen={() => open(i.url)} />)}</div> : <p className="py-12 text-center text-slate-500">No saved products yet. Tap the heart on a product.</p>) : null}
+      {tab === "saved" && me ? (saved.length ? <div className="space-y-2">{saved.map((i) => <ItemRow key={i.product_id} i={i} onRemove={() => void remove(i)} onOpen={() => open(i.url)} />)}</div> : <p className="py-12 text-center text-[#a8a2c9]">No saved products yet. Tap the heart on a product.</p>) : null}
       {tab === "cart" && me ? (cart.length ? (
         <div className="space-y-2">
           {cart.map((i) => <ItemRow key={i.product_id} i={i} onRemove={() => void remove(i)} onOpen={() => open(i.url)} qty={{ value: i.qty, set: (q) => void setQty(i, q) }} />)}
-          <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4"><span className="font-medium">Total</span><span className="text-xl font-bold">{money(total, cart[0].currency)}</span></div>
+          <div className="flex items-center justify-between rounded-2xl border border-white/20 bg-[#141028] p-4"><span className="font-medium">Total</span><span className="text-xl font-bold">{money(total, cart[0].currency)}</span></div>
           <button onClick={() => open(base)} className={`${BRAND} flex h-12 w-full items-center justify-center gap-2 rounded-xl font-semibold text-white`}>Continue on Maestra Market <ExternalLink className="h-4 w-4" /></button>
-          <p className="text-center text-xs text-slate-500">Payment and delivery details are completed on Maestra Market.</p>
+          <p className="text-center text-xs text-[#a8a2c9]">Payment and delivery details are completed on Maestra Market.</p>
         </div>
-      ) : <p className="py-12 text-center text-slate-500">Your cart is empty.</p>) : null}
+      ) : <p className="py-12 text-center text-[#a8a2c9]">Your cart is empty.</p>) : null}
     </main>
   );
 }
 
 function ItemRow({ i, onRemove, onOpen, qty }: { i: Item; onRemove: () => void; onOpen: () => void; qty?: { value: number; set: (q: number) => void } }) {
-  const b = "flex h-9 w-9 items-center justify-center rounded-full border border-slate-200";
+  const b = "flex h-9 w-9 items-center justify-center rounded-full border border-white/20";
   return (
-    <div className="home-feed-card flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-3">
+    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#141028] p-3">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {i.image ? <img src={i.image} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" /> : <div className="h-16 w-16 shrink-0 rounded-lg bg-slate-100" />}
+      {i.image ? <img src={i.image} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" /> : <div className="h-16 w-16 shrink-0 rounded-lg bg-[#1d1840]" />}
       <div className="min-w-0 flex-1"><button onClick={onOpen} className="line-clamp-2 text-left text-sm font-medium">{i.title}</button><p className="font-bold">{money(i.price, i.currency)}</p></div>
       {qty ? <div className="flex items-center gap-2"><button className={b} aria-label="Decrease" onClick={() => qty.set(qty.value - 1)}><Minus className="h-4 w-4" /></button><span className="w-5 text-center text-sm">{qty.value}</span><button className={b} aria-label="Increase" onClick={() => qty.set(qty.value + 1)}><Plus className="h-4 w-4" /></button></div> : null}
-      <button onClick={onRemove} aria-label="Remove" className="flex h-11 w-11 items-center justify-center text-slate-400 hover:text-red-500"><Trash2 className="h-5 w-5" /></button>
+      <button onClick={onRemove} aria-label="Remove" className="flex h-11 w-11 items-center justify-center text-[#a8a2c9] hover:text-red-500"><Trash2 className="h-5 w-5" /></button>
     </div>
   );
 }

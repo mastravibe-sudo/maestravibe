@@ -3,16 +3,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Bell, Moon, ShoppingBag, Sun } from "lucide-react";
+import { Bell, Search, ShoppingBag } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import DbFeed from "@/components/DbFeed";
-import { useColorMode } from "@/lib/theme";
 import GetAppButton from "@/components/GetAppButton";
 
 type ProfileSummary = { id: string; username: string; name: string | null; bio: string | null; avatar_url: string | null };
 
-const panel = "home-dashboard-panel rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
-const toolBtn = "inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50";
+const panel = "rounded-2xl border border-white/10 bg-[#141028] p-4";
+const toolBtn = "inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#1d1840] text-[#e4e0ff] hover:bg-[#25205a]";
 
 function Avatar({ person, size = "h-12 w-12" }: { person: ProfileSummary; size?: string }) {
   return (
@@ -24,7 +23,6 @@ function Avatar({ person, size = "h-12 w-12" }: { person: ProfileSummary; size?:
 }
 
 export default function HomeDashboard() {
-  const { mode, toggleMode } = useColorMode();
   const [supabase] = useState(() => createClient());
   const [userId, setUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileSummary | null>(null);
@@ -83,25 +81,23 @@ export default function HomeDashboard() {
   const profileCompletion = profile ? Math.round(([profile.name, profile.bio, profile.avatar_url].filter(Boolean).length / 3) * 100) : 0;
   const followBtn = (person: ProfileSummary) =>
     userId ? (
-      <button disabled={busyId === person.id} onClick={() => void follow(person)} className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-fuchsia-300 hover:text-violet-600 disabled:opacity-50">
+      <button disabled={busyId === person.id} onClick={() => void follow(person)} className="shrink-0 rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-[#c9c4e8] hover:border-fuchsia-300 hover:text-violet-600 disabled:opacity-50">
         {busyId === person.id ? "..." : "Follow"}
       </button>
     ) : null;
 
   return (
-    <main data-mode={mode} className="home-dashboard-root mx-auto min-h-screen max-w-6xl px-3 py-5 pb-24 text-slate-900 sm:px-5 sm:py-7">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-950 sm:text-3xl">{profile?.name ? `Welcome back, ${profile.name}` : "Home"}</h1>
-          <p className="mt-1 text-sm text-slate-500">Updates from the people in your circle.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <GetAppButton />
-          <button onClick={toggleMode} aria-label={`Switch to ${mode === "light" ? "dark" : "light"} mode`} className={toolBtn}>
-            {mode === "light" ? <Moon className="h-4 w-4" aria-hidden="true" /> : <Sun className="h-4 w-4" aria-hidden="true" />}
-            <span className="hidden sm:inline">{mode === "light" ? "Dark mode" : "Light mode"}</span>
-          </button>
-        </div>
+    <main data-mode="dark" className="mx-auto min-h-screen max-w-6xl px-3 py-5 pb-24 text-[#f4f2ff] sm:px-5 sm:py-7">
+      <header className="mb-4 flex items-center gap-3">
+        <Link href="/" className="flex flex-1 items-center gap-3 md:hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/maestravibe.png" alt="Maestra Vibe logo" className="h-11 w-11 rounded-xl object-cover" />
+          <span className="text-xl font-bold">Maestra <span className="text-violet-300">Vibe</span></span>
+        </Link>
+        <h1 className="hidden flex-1 text-2xl font-bold md:block">{profile?.name ? `Welcome back, ${profile.name}` : "Home"}</h1>
+        <Link href="/search" aria-label="Search" className={toolBtn}><Search className="h-5 w-5" aria-hidden="true" /></Link>
+        <Link href="/notifications" aria-label="Notifications" className={toolBtn}><Bell className="h-5 w-5" aria-hidden="true" /></Link>
+        <GetAppButton />
       </header>
 
       {error ? <p role="alert" className="mb-4 rounded-lg border border-amber-400/20 bg-amber-950/30 p-3 text-sm text-amber-100">{error}</p> : null}
@@ -111,8 +107,8 @@ export default function HomeDashboard() {
           <section className={panel}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Your circle</h2>
-                <p className="mt-0.5 text-xs text-slate-500">People you follow</p>
+                <h2 className="text-sm font-semibold text-[#f4f2ff]">Your circle</h2>
+                <p className="mt-0.5 text-xs text-[#a8a2c9]">People you follow</p>
               </div>
               {following.length ? <Link href="/friends" className="text-xs font-medium text-violet-600 hover:text-violet-500">See friends</Link> : null}
             </div>
@@ -122,17 +118,17 @@ export default function HomeDashboard() {
                 {profile ? (
                   <Link href={`/${profile.username}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
                     <span className="rounded-full border border-dashed border-fuchsia-400 p-0.5"><Avatar person={profile} /></span>
-                    <span className="w-full truncate text-[11px] text-slate-500">You</span>
+                    <span className="w-full truncate text-[11px] text-[#a8a2c9]">You</span>
                   </Link>
                 ) : null}
                 {following.map((person) => (
                   <Link key={person.id} href={`/${person.username}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
                     <span className="rounded-full bg-linear-to-br from-violet-500 via-fuchsia-500 to-blue-500 p-0.5"><Avatar person={person} /></span>
-                    <span className="w-full truncate text-[11px] text-slate-500">{person.name || person.username}</span>
+                    <span className="w-full truncate text-[11px] text-[#a8a2c9]">{person.name || person.username}</span>
                   </Link>
                 ))}
-                {!profile && !following.length ? <Link href="/login" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600">Log in to build your circle</Link> : null}
-                {profile && !following.length ? <Link href="/friends" className="flex min-h-20 min-w-48 items-center rounded-lg border border-dashed border-slate-200 px-4 text-xs text-slate-500">Follow people to see their updates here.</Link> : null}
+                {!profile && !following.length ? <Link href="/login" className="rounded-lg border border-white/10 px-3 py-2 text-sm text-[#c9c4e8]">Log in to build your circle</Link> : null}
+                {profile && !following.length ? <Link href="/friends" className="flex min-h-20 min-w-48 items-center rounded-lg border border-dashed border-white/10 px-4 text-xs text-[#a8a2c9]">Follow people to see their updates here.</Link> : null}
               </div>
             )}
           </section>
@@ -140,12 +136,12 @@ export default function HomeDashboard() {
           {/* Chhoti screen par Discover yahin dikhta hai (badi screen par right side mein) */}
           {userId && discover.length ? (
             <section className={`${panel} xl:hidden`}>
-              <h2 className="mb-3 text-sm font-semibold text-slate-900">Discover people</h2>
+              <h2 className="mb-3 text-sm font-semibold text-[#f4f2ff]">Discover people</h2>
               <div className="flex gap-3 overflow-x-auto pb-1">
                 {discover.map((person) => (
-                  <div key={person.id} className="flex w-36 shrink-0 flex-col items-center gap-2 rounded-lg border border-slate-100 p-3 text-center">
+                  <div key={person.id} className="flex w-36 shrink-0 flex-col items-center gap-2 rounded-lg border border-white/10 p-3 text-center">
                     <Link href={`/${person.username}`}><Avatar person={person} size="h-12 w-12" /></Link>
-                    <Link href={`/${person.username}`} className="w-full truncate text-xs font-medium text-slate-800">{person.name || person.username}</Link>
+                    <Link href={`/${person.username}`} className="w-full truncate text-xs font-medium text-[#f4f2ff]">{person.name || person.username}</Link>
                     {followBtn(person)}
                   </div>
                 ))}
@@ -161,38 +157,38 @@ export default function HomeDashboard() {
             <section className={panel}>
               <div className="flex items-center gap-3">
                 <Link href={`/${profile.username}`}><Avatar person={profile} size="h-11 w-11" /></Link>
-                <div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{profile.name || profile.username}</p><p className="truncate text-xs text-slate-500">@{profile.username}</p></div>
+                <div className="min-w-0"><p className="truncate text-sm font-semibold text-[#f4f2ff]">{profile.name || profile.username}</p><p className="truncate text-xs text-[#a8a2c9]">@{profile.username}</p></div>
               </div>
-              <div className="mt-4 flex items-center justify-between text-xs"><span className="text-slate-500">Profile completion</span><span className="font-medium text-violet-600">{profileCompletion}%</span></div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500" style={{ width: `${profileCompletion}%` }} /></div>
-              <Link href={`/${profile.username}?edit=1`} className="mt-4 block rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700 hover:bg-slate-200">Edit profile</Link>
+              <div className="mt-4 flex items-center justify-between text-xs"><span className="text-[#a8a2c9]">Profile completion</span><span className="font-medium text-violet-600">{profileCompletion}%</span></div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#1d1840]"><div className="h-full rounded-full bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500" style={{ width: `${profileCompletion}%` }} /></div>
+              <Link href={`/${profile.username}?edit=1`} className="mt-4 block rounded-lg bg-[#1d1840] px-3 py-2 text-center text-xs font-medium text-[#e4e0ff] hover:bg-[#25205a]">Edit profile</Link>
             </section>
           ) : !loading ? (
             <section className={panel}>
-              <h2 className="text-sm font-semibold text-slate-900">Join your community</h2>
-              <p className="mt-2 text-xs leading-relaxed text-slate-500">Create a profile to follow people and share updates.</p>
+              <h2 className="text-sm font-semibold text-[#f4f2ff]">Join your community</h2>
+              <p className="mt-2 text-xs leading-relaxed text-[#a8a2c9]">Create a profile to follow people and share updates.</p>
               <Link href="/login" className="mt-4 block rounded-lg bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500 px-3 py-2 text-center text-xs font-semibold text-white hover:bg-blue-500">Log in or sign up</Link>
             </section>
           ) : null}
 
           <section className={panel}>
-            <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-slate-900">Discover people</h2><Link href="/friends" className="text-xs text-violet-600">Friends</Link></div>
-            {loading ? <p className="text-xs text-slate-500">Finding people...</p> : discover.length ? (
+            <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-[#f4f2ff]">Discover people</h2><Link href="/friends" className="text-xs text-violet-600">Friends</Link></div>
+            {loading ? <p className="text-xs text-[#a8a2c9]">Finding people...</p> : discover.length ? (
               <div className="space-y-3">
                 {discover.map((person) => (
                   <div key={person.id} className="flex min-w-0 items-center gap-2">
                     <Link href={`/${person.username}`}><Avatar person={person} size="h-9 w-9" /></Link>
-                    <Link href={`/${person.username}`} className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-slate-800">{person.name || person.username}</p><p className="truncate text-[10px] text-slate-500">@{person.username}</p></Link>
+                    <Link href={`/${person.username}`} className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-[#f4f2ff]">{person.name || person.username}</p><p className="truncate text-[10px] text-[#a8a2c9]">@{person.username}</p></Link>
                     {followBtn(person)}
                   </div>
                 ))}
               </div>
-            ) : <p className="text-xs text-slate-500">No new profiles to show yet.</p>}
+            ) : <p className="text-xs text-[#a8a2c9]">No new profiles to show yet.</p>}
           </section>
 
           <nav aria-label="Explore" className="grid grid-cols-2 gap-2 text-xs">
-            <Link href="/notifications" className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm hover:bg-slate-50"><Bell className="h-4 w-4" aria-hidden="true" />Notifications</Link>
-            <Link href="/market" className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm hover:bg-slate-50"><ShoppingBag className="h-4 w-4" aria-hidden="true" />Maestra Market</Link>
+            <Link href="/notifications" className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#141028] px-3 py-3 text-[#e4e0ff] shadow-sm hover:bg-[#141028]/5"><Bell className="h-4 w-4" aria-hidden="true" />Notifications</Link>
+            <Link href="/market" className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#141028] px-3 py-3 text-[#e4e0ff] shadow-sm hover:bg-[#141028]/5"><ShoppingBag className="h-4 w-4" aria-hidden="true" />Maestra Market</Link>
           </nav>
         </aside>
       </div>

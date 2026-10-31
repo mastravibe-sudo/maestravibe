@@ -77,9 +77,9 @@ export function StatsStylePicker({ style, theme, onChange }: { style: Record<str
       <div className="flex gap-2">
         {STATS_SKINS.map((k) => <button key={k.id} onClick={() => onChange("statsStyle", `${cur.layout}-${k.id}`)} aria-pressed={cur.skin === k.id} className={chip(cur.skin === k.id)}>{k.name}</button>)}
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="-mx-1 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-1 pb-2">
         {STATS_LAYOUTS.map((l) => (
-          <button key={l.id} onClick={() => onChange("statsStyle", `${l.id}-${cur.skin}`)} aria-label={`${l.name} stats`} aria-pressed={cur.layout === l.id} className={`overflow-hidden rounded-lg border text-left ${cur.layout === l.id ? "border-violet-400" : "border-white/10"}`}>
+          <button key={l.id} onClick={() => onChange("statsStyle", `${l.id}-${cur.skin}`)} aria-label={`${l.name} stats`} aria-pressed={cur.layout === l.id} className={`w-36 shrink-0 snap-start overflow-hidden rounded-lg border text-left ${cur.layout === l.id ? "border-violet-400" : "border-white/10"}`}>
             <span className="block h-16 overflow-hidden" style={{ background: theme.page }}>
               <span className="block origin-top-left" style={{ width: 400, height: 170, transform: "scale(0.33)" }}>
                 <span className="block h-full w-full p-4" style={{ color: theme.text, fontFamily: theme.fontBody }}>
@@ -91,6 +91,7 @@ export function StatsStylePicker({ style, theme, onChange }: { style: Record<str
           </button>
         ))}
       </div>
+      <p className="text-xs text-zinc-500">Swipe to preview. Tap to apply.</p>
     </div>
   );
 }

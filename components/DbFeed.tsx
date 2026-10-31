@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Bookmark, Clapperboard, Flame, HandHeart, ImagePlus, MessageCircle, Play, Repeat2, Share2, Video } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { useColorMode } from "@/lib/theme";
 import { typeMeta } from "@/components/postMeta";
 import PostComposer from "@/components/PostComposer";
 import ShortsViewer from "@/components/ShortsViewer";
@@ -13,17 +12,16 @@ import PostViewer, { Avatar, ago, mediaOf, type Orig, type Row } from "@/compone
 
 const SELECT =
   "id,type,title,body,tags,location,media,image_url,created_at,user_id,comment_policy,comments_closed,share_policy,repost_of," +
-  "profiles!posts_user_id_fkey(username,name,avatar_url,style),vibes(user_id),saves(user_id)," +
+  "profiles!posts_user_id_fkey(username,name,avatar_url,style),vibes(user_id,kind),saves(user_id)," +
   "comments(id,body,pinned,created_at,user_id,profiles!comments_user_id_fkey(username,name,avatar_url))";
 const ORIG = "id,title,body,image_url,media,profiles!posts_user_id_fkey(username,name,avatar_url)";
 const BRAND = "bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500";
-const card = "home-feed-card overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm";
-const act = "flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 text-base text-slate-600 hover:bg-slate-100 active:scale-95 disabled:opacity-40";
+const card = "overflow-hidden rounded-2xl border border-white/10 bg-[#141028]";
+const act = "flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 text-base text-[#c9c4e8] hover:bg-white/10 active:scale-95 disabled:opacity-40";
 const TABS = ["For you", "Following", "Videos"] as const;
 const isVideo = (r: Row) => mediaOf(r.original ?? r)[0]?.type === "video";
 
 export default function DbFeed() {
-  const { mode } = useColorMode();
   const [supabase] = useState(() => createClient());
   const [rows, setRows] = useState<Row[]>([]);
   const [me, setMe] = useState<string | null>(null);
@@ -53,7 +51,7 @@ export default function DbFeed() {
     }
     const { data, error: err } = await supabase.from("posts").select(SELECT).order("created_at", { ascending: false }).limit(40);
     if (err) {
-      setError(/column|schema cache/i.test(err.message) ? "Database update needed: run supabase/migrations/post_settings.sql in the Supabase SQL Editor." : err.message);
+      setError(/column|schema cache/i.test(err.message) ? "Database update needed: run post_settings.sql and reactions.sql from supabase/migrations in the Supabase SQL Editor." : err.message);
       setLoading(false);
       return;
     }
@@ -89,7 +87,20 @@ export default function DbFeed() {
   };
   const need = () => setError("Log in to do that.");
 
-  const vibe = (r: Row) => !me ? need() : run(r.vibes.some((v) => v.user_id === me) ? supabase.from("vibes").delete().eq("post_id", r.id).eq("user_id", me) : supabase.from("vibes").insert({ post_id: r.id, user_id: me }));
+  const react = async (r: Row, kind: "vibe" | "support" | "inspire" = "vibe") => {
+    if (!me) return need();
+    const mine = r.vibes.find((v) => v.user_id === me);
+    if (mine) {
+      const { error: e } = await supabase.from("vibes").delete().eq("post_id", r.id).eq("user_id", me);
+      if (e) return fail(e);
+    }
+    if (!mine || (mine.kind ?? "vibe") !== kind) {
+      const { error: e } = await supabase.from("vibes").insert({ post_id: r.id, user_id: me, kind });
+      if (e) fail(e);
+    }
+    await load();
+  };
+  const vibe = (r: Row) => react(r, r.type === "struggle" ? "support" : "vibe");
   const save = (r: Row) => !me ? need() : run(r.saves.some((s) => s.user_id === me) ? supabase.from("saves").delete().eq("post_id", r.id).eq("user_id", me) : supabase.from("saves").insert({ post_id: r.id, user_id: me }));
   const repost = async (r: Row) => {
     if (!me) return need();
@@ -111,7 +122,7 @@ export default function DbFeed() {
   const remove = async (r: Row) => { setOpenId(null); await run(supabase.from("posts").delete().eq("id", r.id)); };
   const toggleComments = (r: Row) => run(supabase.from("posts").update({ comment_policy: r.comment_policy === "off" ? "everyone" : "off" }).eq("id", r.id));
   const share = async (r: Row) => {
-    const url = `${window.location.origin}/?post=${r.id}`;
+    const url = `${window.location.origin}/p/${r.id}`;
     if (navigator.share) { try { await navigator.share({ title: r.title || "Maestra Vibe", url }); return; } catch { /* user cancelled */ } }
     await navigator.clipboard?.writeText(url);
     flash("Link copied");
@@ -122,27 +133,27 @@ export default function DbFeed() {
   const open = rows.find((r) => r.id === openId) ?? null;
 
   return (
-    <section data-mode={mode} aria-label="Community feed" className="home-feed mx-auto max-w-3xl space-y-4 px-0 py-3 sm:py-5">
+    <section data-mode="dark" aria-label="Community feed" className="mx-auto max-w-3xl space-y-4 px-0 py-3 sm:py-5">
       {me ? (
         <div className={`${card} flex items-center gap-2 p-3`}>
-          <button onClick={() => setCreating(true)} className="h-12 flex-1 rounded-full bg-slate-100 px-4 text-left text-base text-slate-500 hover:bg-slate-200">What is your vibe today?</button>
-          <button onClick={() => setCreating(true)} aria-label="Add photo" className="flex h-12 w-12 items-center justify-center rounded-full text-violet-500 hover:bg-slate-100"><ImagePlus className="h-6 w-6" /></button>
-          <button onClick={() => setCreating(true)} aria-label="Add video" className="flex h-12 w-12 items-center justify-center rounded-full text-pink-500 hover:bg-slate-100"><Video className="h-6 w-6" /></button>
+          <button onClick={() => setCreating(true)} className="h-12 flex-1 rounded-full bg-[#1d1840] px-4 text-left text-base text-[#a8a2c9] hover:bg-[#25205a]">What is your vibe today?</button>
+          <button onClick={() => setCreating(true)} aria-label="Add photo" className="flex h-12 w-12 items-center justify-center rounded-full text-violet-500 hover:bg-white/10"><ImagePlus className="h-6 w-6" /></button>
+          <button onClick={() => setCreating(true)} aria-label="Add video" className="flex h-12 w-12 items-center justify-center rounded-full text-pink-500 hover:bg-white/10"><Video className="h-6 w-6" /></button>
         </div>
       ) : !loading ? (
-        <Link href="/login" className={`${card} block p-4 text-center text-base text-slate-600 hover:bg-slate-50`}>Log in or sign up to share your vibe</Link>
+        <Link href="/login" className={`${card} block p-4 text-center text-base text-[#c9c4e8] hover:bg-white/5`}>Log in or sign up to share your vibe</Link>
       ) : null}
 
       <div className="flex items-center gap-2">
-        <div className="flex flex-1 gap-1 rounded-full bg-slate-100 p-1" role="tablist" aria-label="Feed sections">
-          {TABS.map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-10 flex-1 rounded-full text-sm font-medium ${tab === t ? `${BRAND} text-white shadow` : "text-slate-600"}`}>{t}</button>)}
+        <div className="flex flex-1 gap-1 rounded-full bg-[#141028] p-1" role="tablist" aria-label="Feed sections">
+          {TABS.map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-10 flex-1 rounded-full text-sm font-medium ${tab === t ? `${BRAND} text-white shadow` : "text-[#c9c4e8]"}`}>{t}</button>)}
         </div>
         <button onClick={() => setShorts(true)} className={`flex h-12 items-center gap-2 rounded-full px-4 text-sm font-semibold text-white ${BRAND}`}><Clapperboard className="h-5 w-5" aria-hidden="true" />Shorts</button>
       </div>
 
-      {note ? <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{note}</p> : null}
-      {error ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-      {loading ? <p className="py-10 text-center text-slate-500">Loading posts...</p> : visible.length === 0 && !error ? <p className="py-10 text-center text-slate-500">{tab === "Following" ? "Follow people to see their posts here." : "Nothing here yet. Be the first to share your vibe."}</p> : null}
+      {note ? <p role="status" className="rounded-lg bg-emerald-500/15 p-3 text-sm text-emerald-300">{note}</p> : null}
+      {error ? <p role="alert" className="rounded-xl bg-red-500/15 p-3 text-sm text-red-300">{error}</p> : null}
+      {loading ? <p className="py-10 text-center text-[#a8a2c9]">Loading posts...</p> : visible.length === 0 && !error ? <p className="py-10 text-center text-[#a8a2c9]">{tab === "Following" ? "Follow people to see their posts here." : "Nothing here yet. Be the first to share your vibe."}</p> : null}
 
       {visible.map((r) => {
         const a = r.profiles;
@@ -159,7 +170,7 @@ export default function DbFeed() {
                 <Link href={`/${a.username}`}><Avatar p={a} size="h-12 w-12" /></Link>
                 <div className="min-w-0 flex-1">
                   <Link href={`/${a.username}`} className="block truncate text-base font-semibold hover:underline">{a.name || a.username}</Link>
-                  <p className="truncate text-sm text-slate-500">@{a.username} · {ago(r.created_at)}{r.repost_of ? " · reposted" : ""}</p>
+                  <p className="truncate text-sm text-[#a8a2c9]">@{a.username} · {ago(r.created_at)}{r.repost_of ? " · reposted" : ""}</p>
                 </div>
                 <span className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold" style={{ background: `${meta.color}22`, color: meta.color }}><meta.Icon className="h-4 w-4" aria-hidden="true" />{meta.label}</span>
               </header>
@@ -167,7 +178,7 @@ export default function DbFeed() {
               <button onClick={() => setOpenId(r.id)} className="block w-full text-left" aria-label="Open post">
                 {shown.title ? <h3 className="mb-1 text-lg font-bold">{shown.title}</h3> : null}
                 {r.body ? <p className="whitespace-pre-wrap text-base leading-relaxed">{r.body}</p> : null}
-                {r.original && !r.body ? <p className="text-sm text-slate-500">@{r.original.profiles.username}: {r.original.body.slice(0, 160)}</p> : null}
+                {r.original && !r.body ? <p className="text-sm text-[#a8a2c9]">@{r.original.profiles.username}: {r.original.body.slice(0, 160)}</p> : null}
                 {m ? (
                   <span className="relative mt-3 block overflow-hidden rounded-xl bg-black">
                     {m.type === "video" ? (
@@ -199,7 +210,7 @@ export default function DbFeed() {
       {open ? (
         <PostViewer
           row={open} me={me} onClose={() => setOpenId(null)}
-          onVibe={() => void vibe(open)} onSave={() => void save(open)} onRepost={() => void repost(open)} onShare={() => void share(open)}
+          onReact={(k) => void react(open, k)} onSave={() => void save(open)} onRepost={() => void repost(open)} onShare={() => void share(open)}
           onComment={(b) => void comment(open, b)} onReport={(why) => void report(open, why)} onHide={() => hide(open)}
           onToggleComments={() => void toggleComments(open)} onDelete={() => void remove(open)}
         />

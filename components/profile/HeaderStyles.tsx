@@ -128,9 +128,9 @@ export function HeaderStylePicker({ style, theme, onChange }: { style: Record<st
       <div className="flex gap-2">
         {HEADER_SKINS.map((k) => <button key={k.id} onClick={() => onChange("headerStyle", `${cur.layout}-${k.id}`)} aria-pressed={cur.skin === k.id} className={chip(cur.skin === k.id)}>{k.name}</button>)}
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="-mx-1 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-1 pb-2">
         {HEADER_LAYOUTS.map((l) => (
-          <button key={l.id} onClick={() => onChange("headerStyle", `${l.id}-${cur.skin}`)} aria-label={`${l.name} header`} aria-pressed={cur.layout === l.id} className={`overflow-hidden rounded-lg border text-left ${cur.layout === l.id ? "border-violet-400" : "border-white/10"}`}>
+          <button key={l.id} onClick={() => onChange("headerStyle", `${l.id}-${cur.skin}`)} aria-label={`${l.name} header`} aria-pressed={cur.layout === l.id} className={`w-36 shrink-0 snap-start overflow-hidden rounded-lg border text-left ${cur.layout === l.id ? "border-violet-400" : "border-white/10"}`}>
             <span className="block h-16 overflow-hidden" style={{ background: theme.page }}>
               <span className="block origin-top-left" style={{ width: 400, height: 170, transform: "scale(0.33)" }}>
                 <span className="block h-full w-full p-4" style={wrap}>

@@ -193,8 +193,30 @@ export default function PostComposer({ me, onClose, onPublished }: { me: string;
         const blob = await compressImage(await renderImage(file, canFilter ? filterCss : "none", ratio));
         media = [{ type: "image", url: await upload(blob, "post", "photo.webp"), bytes: blob.size }];
       } else if (file && kind === "video") {
-        setStatus("Preparing your clip. Keep this tab open.");
-        const clip = await recordClip(file, start, canFilter ? filterCss : "none", setProgress);
+        const hasVideoEdits = start > 0 || (canFilter && filterId !== "none");
+
+        const canUploadOriginal =
+          file.type === "video/mp4" &&
+          file.size <= MEDIA_LIMITS.videoMaxBytes &&
+          vmeta !== null &&
+          vmeta.duration <= MEDIA_LIMITS.videoMaxSeconds &&
+          !hasVideoEdits;
+
+        let clip: Blob;
+
+        if (canUploadOriginal) {
+          setStatus("Uploading original video without compression...");
+          setProgress(1);
+          clip = file;
+        } else {
+          setStatus("Preparing your clip. Keep this tab open...");
+          clip = await recordClip(
+            file,
+            start,
+            canFilter ? filterCss : "none",
+            setProgress
+          );
+        }
 if (clip.size > MEDIA_LIMITS.videoMaxBytes) {
   throw new Error(
     `This clip is ${(clip.size / 1048576).toFixed(1)} MB. Maximum size is 2.5 MB. Try a shorter clip.`

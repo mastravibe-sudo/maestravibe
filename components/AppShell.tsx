@@ -7,7 +7,6 @@ import { usePathname } from "next/navigation";
 import { Bell, House, ShoppingBag, User, Users, type LucideIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import AuthBox from "@/components/AuthBox";
-import { useColorMode } from "@/lib/theme";
 
 // Apni public folder wali logo image ka naam yahan likho, jaise "/logo.png"
 const LOGO_SRC = "/maestra-vibe-logo.svg";
@@ -16,8 +15,7 @@ type NavItem = { href: string; label: string; Icon: LucideIcon };
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { mode } = useColorMode();
-  const lightHome = pathname === "/" && mode === "light";
+  const lightHome = false;
   const [myUsername, setMyUsername] = useState<string | null>(null);
 
   useEffect(() => {
@@ -60,7 +58,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <div className={`mx-auto flex min-h-screen max-w-7xl ${lightHome ? "bg-[#f4f7fb] text-slate-900" : ""}`}>
+      <div className={`mx-auto flex min-h-screen max-w-7xl bg-[#09061a] text-[#f4f2ff]`}>
         {/* Left menu */}
         <aside className={`sticky top-0 hidden h-screen w-64 shrink-0 flex-col gap-2 border-r p-5 md:flex ${lightHome ? "border-slate-200 bg-white" : "border-white/10"}`}>
           <Link href="/" className="mb-6 flex items-center gap-2">
@@ -86,7 +84,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className={`fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t px-1 py-2 backdrop-blur md:hidden ${lightHome ? "border-slate-200 bg-white/95" : "border-white/10 bg-zinc-950/95"}`}>
+      <nav className={`fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t px-1 py-2 backdrop-blur md:hidden ${lightHome ? "border-slate-200 bg-white/95" : "border-white/10 bg-[#0f0b24]/95"}`}>
         {nav.map(({ href, label, Icon }) => (
           <Link
             key={label}
