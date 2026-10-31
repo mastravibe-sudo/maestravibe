@@ -55,72 +55,235 @@ async function renderImage(file: File, filterCss: string, ratio: number): Promis
 }
 
 // Video ka chuna hua 30 second ka hissa chhoti size mein dobara record karta hai (real time mein chalta hai)
-async function recordClip(file: File, start: number, filterCss: string, onProgress: (p: number) => void): Promise<Blob> {
+
+async function recordClip(
+  file: File,
+  start: number,
+  filterCss: string,
+  onProgress: (p: number) => void
+): Promise<Blob> {
   const url = URL.createObjectURL(file);
-  const v = document.createElement("video");
-  v.src = url;
-  v.playsInline = true;
-  v.preload = "auto";
-  await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error("This video could not be read.")); });
-  const len = Math.min(MEDIA_LIMITS.videoMaxSeconds, v.duration - start);
- const k = Math.min(1, 720 / Math.min(v.videoWidth, v.videoHeight));
-  const w = Math.round((v.videoWidth * k) / 2) * 2, h = Math.round((v.videoHeight * k) / 2) * 2;
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d")!;
-  if (filterCss !== "none") ctx.filter = filterCss;
-  const stream = canvas.captureStream(24);
-  const ac = new AudioContext();
-  const dest = ac.createMediaStreamDestination();
-  ac.createMediaElementSource(v).connect(dest);
-  dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+  const video = document.createElement("video");
 
-const mime = [
-  "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
-  "video/mp4",
-  "video/webm;codecs=vp9,opus",
-  "video/webm;codecs=vp8,opus",
-  "video/webm",
-].find((m) => MediaRecorder.isTypeSupported(m));
+  let audioContext: AudioContext | null = null;
+  let animationFrame = 0;
+  let recorder: MediaRecorder | null = null;
+  let stream: MediaStream | null = null;
 
+  try {
+    video.src = url;
+    video.playsInline = true;
+    video.preload = "auto";
 
-  if (!mime) throw new Error("This browser cannot prepare videos. Please use an updated Chrome, Edge, Firefox or Safari.");
-const targetTotalBps = Math.floor(
-  (MEDIA_LIMITS.videoMaxBytes * 0.92 * 8) / Math.max(len, 1)
-);
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(
+        new Error("This video could not be read.")
+      );
+    });
 
-const audioBps = Math.min(
-  96_000,
-  Math.max(48_000, Math.floor(targetTotalBps * 0.12))
-);
+    const duration = Math.min(
+      MEDIA_LIMITS.videoMaxSeconds,
+      video.duration - start
+    );
 
-const videoBps = Math.max(300_000, targetTotalBps - audioBps);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      throw new Error("Please select a valid video section.");
+    }
 
-const rec = new MediaRecorder(stream, {
-  mimeType: mime,
-  videoBitsPerSecond: videoBps,
-  audioBitsPerSecond: audioBps,
-});
-  const chunks: Blob[] = [];
-  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-  const seeked = new Promise<void>((res) => { v.onseeked = () => res(); });
-  v.currentTime = start;
-  await seeked;
-  await ac.resume();
-  rec.start(1000);
-  await v.play();
-  let raf = 0;
-  const draw = () => { ctx.drawImage(v, 0, 0, w, h); onProgress(Math.min(1, (v.currentTime - start) / len)); raf = requestAnimationFrame(draw); };
-  draw();
-  await new Promise<void>((res) => { const t = setInterval(() => { if (v.currentTime - start >= len || v.ended) { clearInterval(t); res(); } }, 200); });
-  cancelAnimationFrame(raf);
-  v.pause();
-  await new Promise<void>((res) => { rec.onstop = () => res(); rec.stop(); });
-  void ac.close();
-  URL.revokeObjectURL(url);
-  return new Blob(chunks, { type: mime.split(";")[0] });
+    const maxBytes = MEDIA_LIMITS.videoMaxBytes;
+    const targetTotalBps = Math.floor(
+      (maxBytes * 0.88 * 8) / duration
+    );
+
+    const audioBps = Math.min(
+      96_000,
+      Math.max(48_000, Math.floor(targetTotalBps * 0.12))
+    );
+
+    const videoBps = Math.max(
+      150_000,
+      targetTotalBps - audioBps
+    );
+
+    // Use lower resolution when the available bitrate is limited.
+    const shortEdge =
+      videoBps >= 900_000 ? 720 :
+      videoBps >= 450_000 ? 480 :
+      360;
+
+    const scale = Math.min(
+      1,
+      shortEdge / Math.min(video.videoWidth, video.videoHeight)
+    );
+
+    const width = Math.max(
+      2,
+      Math.round((video.videoWidth * scale) / 2) * 2
+    );
+
+    const height = Math.max(
+      2,
+      Math.round((video.videoHeight * scale) / 2) * 2
+    );
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      throw new Error("Could not prepare this video.");
+    }
+
+    if (filterCss !== "none") {
+      context.filter = filterCss;
+    }
+
+    stream = canvas.captureStream(24);
+
+    audioContext = new AudioContext();
+
+    const destination =
+      audioContext.createMediaStreamDestination();
+
+    const source =
+      audioContext.createMediaElementSource(video);
+
+    source.connect(destination);
+
+    destination.stream.getAudioTracks().forEach((track) => {
+      stream!.addTrack(track);
+    });
+
+    const mime = [
+      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+      "video/mp4",
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+    ].find((type) => MediaRecorder.isTypeSupported(type));
+
+    if (!mime) {
+      throw new Error(
+        "This browser cannot prepare videos. Please use an updated Chrome, Edge, Firefox or Safari."
+      );
+    }
+
+    recorder = new MediaRecorder(stream, {
+      mimeType: mime,
+      videoBitsPerSecond: videoBps,
+      audioBitsPerSecond: audioBps,
+    });
+
+    const chunks: Blob[] = [];
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      video.onseeked = () => resolve();
+      video.onerror = () => reject(
+        new Error("Could not seek to the selected video section.")
+      );
+      video.currentTime = start;
+    });
+
+    await audioContext.resume();
+
+    await new Promise<void>((resolve, reject) => {
+      recorder!.onstop = () => resolve();
+      recorder!.onerror = () => reject(
+        new Error("Video recording failed.")
+      );
+
+      recorder!.start(1000);
+
+      video.play().then(() => {
+        const draw = () => {
+          if (!video.paused && !video.ended) {
+            context.drawImage(
+              video,
+              0,
+              0,
+              width,
+              height
+            );
+
+            onProgress(
+              Math.min(
+                1,
+                Math.max(0, (video.currentTime - start) / duration)
+              )
+            );
+
+            animationFrame = requestAnimationFrame(draw);
+          }
+        };
+
+        draw();
+
+        const checkProgress = () => {
+          if (
+            video.currentTime - start >= duration ||
+            video.ended
+          ) {
+            video.pause();
+            cancelAnimationFrame(animationFrame);
+
+            if (recorder?.state === "recording") {
+              recorder.stop();
+            }
+
+            return;
+          }
+
+          if (recorder?.state === "recording") {
+            setTimeout(checkProgress, 150);
+          }
+        };
+
+        checkProgress();
+      }).catch(reject);
+    });
+
+    const blob = new Blob(chunks, {
+      type: mime.split(";")[0],
+    });
+
+    if (blob.size > maxBytes) {
+      throw new Error(
+        `This clip is ${(blob.size / 1048576).toFixed(2)} MB after processing. The maximum is 2.5 MB. Please select a shorter section.`
+      );
+    }
+
+    onProgress(1);
+    return blob;
+  } finally {
+    cancelAnimationFrame(animationFrame);
+
+    if (recorder?.state === "recording") {
+      recorder.stop();
+    }
+
+    stream?.getTracks().forEach((track) => track.stop());
+
+    if (audioContext && audioContext.state !== "closed") {
+      await audioContext.close();
+    }
+
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+
+    URL.revokeObjectURL(url);
+  }
 }
+
 
 async function upload(blob: Blob, purpose: "post" | "post-video", name: string) {
   const form = new FormData();
