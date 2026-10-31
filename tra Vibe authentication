@@ -1,0 +1,7 @@
+ app/market/page.tsx          | 138 [32m++[m[31m-----------------------------------------[m
+ components/AppShell.tsx      |   6 [32m+[m[31m-[m
+ components/DbFeed.tsx        | 129 [32m+++++++++++++++++++++++[m[31m-----------------[m
+ components/HomeDashboard.tsx |  16 [32m++[m[31m---[m
+ components/PostViewer.tsx    |   4 [32m+[m[31m-[m
+ components/postMeta.ts       |  12 [32m++[m[31m--[m
+ 6 files changed, 100 insertions(+), 205 deletions(-)

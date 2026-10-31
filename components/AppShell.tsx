@@ -66,13 +66,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/" className="mb-6 flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={LOGO_SRC} alt="" className="h-10 w-10 rounded-lg object-cover" />
-            <span className={`bg-linear-to-r ${lightHome ? "from-blue-700 to-cyan-500" : "from-violet-400 to-pink-400"} bg-clip-text text-xl font-extrabold text-transparent`}>Maestra Vibe</span>
+            <span className={`bg-linear-to-r ${lightHome ? "from-violet-600 via-fuchsia-500 to-blue-500" : "from-violet-400 to-pink-400"} bg-clip-text text-xl font-extrabold text-transparent`}>Maestra Vibe</span>
           </Link>
           {nav.map(({ href, label, Icon }) => (
             <Link
               key={label}
               href={href}
-              className={`flex items-center gap-3 rounded-xl px-4 py-3 text-base transition ${lightHome ? "hover:bg-slate-50" : "hover:bg-white/10"} ${pathname === href ? (lightHome ? "bg-blue-50 font-semibold text-blue-700" : "bg-white/10 font-semibold") : lightHome ? "text-slate-500" : "text-zinc-400"}`}
+              className={`flex items-center gap-3 rounded-xl px-4 py-3 text-base transition ${lightHome ? "hover:bg-slate-50" : "hover:bg-white/10"} ${pathname === href ? (lightHome ? "bg-violet-50 font-semibold text-violet-700" : "bg-white/10 font-semibold") : lightHome ? "text-slate-500" : "text-zinc-400"}`}
             >
               <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
               {label}
@@ -91,7 +91,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <Link
             key={label}
             href={href}
-            className={`flex min-w-0 flex-col items-center gap-0.5 text-[10px] ${pathname === href ? (lightHome ? "font-semibold text-blue-700" : "text-white") : lightHome ? "text-slate-500" : "text-zinc-500"}`}
+            className={`flex min-w-0 flex-col items-center gap-0.5 text-[10px] ${pathname === href ? (lightHome ? "font-semibold text-violet-700" : "text-white") : lightHome ? "text-slate-500" : "text-zinc-500"}`}
           >
             <Icon className="h-5 w-5" aria-hidden="true" />
             <span className="max-w-full truncate">{label.replace("Maestra ", "")}</span>

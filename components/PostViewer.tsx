@@ -7,6 +7,7 @@ import { Bookmark, Ellipsis, EyeOff, Flag, Flame, HandHeart, Link2, LockKeyhole,
 import type { PostType } from "@/lib/posts";
 import { EMOJIS, STICKERS, stickerOf, stickerToken } from "@/lib/stickers";
 import { typeMeta } from "@/components/postMeta";
+import { useOverlayHistory } from "@/lib/useOverlayHistory";
 
 export type Media = { type: "image" | "video"; url: string; width?: number; height?: number; bytes?: number };
 export type Person = { username: string; name: string | null; avatar_url: string | null };
@@ -52,6 +53,7 @@ const act = "flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-zinc-
 const menuItem = "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-white/10";
 
 export default function PostViewer({ row, me, onClose, onVibe, onSave, onRepost, onShare, onComment, onReport, onHide, onToggleComments, onDelete }: Props) {
+  useOverlayHistory(onClose);
   const [draft, setDraft] = useState("");
   const [tray, setTray] = useState<"emoji" | "sticker" | null>(null);
   const [menu, setMenu] = useState(false);
@@ -85,7 +87,7 @@ export default function PostViewer({ row, me, onClose, onVibe, onSave, onRepost,
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/90 lg:flex-row" role="dialog" aria-modal="true" aria-label="Post">
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black/90 lg:flex-row" role="dialog" aria-modal="true" aria-label="Post">
       <div className="relative flex min-h-0 flex-1 items-center justify-center p-2" onClick={onClose}>
         <button onClick={onClose} aria-label="Close" className="absolute left-3 top-3 z-10 rounded-full bg-black/60 p-2 text-white"><X className="h-5 w-5" /></button>
         {media[0]?.type === "video" ? (

@@ -83,7 +83,7 @@ export default function HomeDashboard() {
   const profileCompletion = profile ? Math.round(([profile.name, profile.bio, profile.avatar_url].filter(Boolean).length / 3) * 100) : 0;
   const followBtn = (person: ProfileSummary) =>
     userId ? (
-      <button disabled={busyId === person.id} onClick={() => void follow(person)} className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700 disabled:opacity-50">
+      <button disabled={busyId === person.id} onClick={() => void follow(person)} className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-fuchsia-300 hover:text-violet-600 disabled:opacity-50">
         {busyId === person.id ? "..." : "Follow"}
       </button>
     ) : null;
@@ -114,20 +114,20 @@ export default function HomeDashboard() {
                 <h2 className="text-sm font-semibold text-slate-900">Your circle</h2>
                 <p className="mt-0.5 text-xs text-slate-500">People you follow</p>
               </div>
-              {following.length ? <Link href="/friends" className="text-xs font-medium text-blue-700 hover:text-blue-600">See friends</Link> : null}
+              {following.length ? <Link href="/friends" className="text-xs font-medium text-violet-600 hover:text-violet-500">See friends</Link> : null}
             </div>
 
             {loading ? <p className="py-5 text-sm text-zinc-500">Loading your circle...</p> : (
               <div className="flex gap-4 overflow-x-auto pb-1">
                 {profile ? (
                   <Link href={`/${profile.username}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
-                    <span className="rounded-full border border-dashed border-blue-400 p-0.5"><Avatar person={profile} /></span>
+                    <span className="rounded-full border border-dashed border-fuchsia-400 p-0.5"><Avatar person={profile} /></span>
                     <span className="w-full truncate text-[11px] text-slate-500">You</span>
                   </Link>
                 ) : null}
                 {following.map((person) => (
                   <Link key={person.id} href={`/${person.username}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
-                    <span className="rounded-full bg-linear-to-br from-blue-600 to-cyan-400 p-0.5"><Avatar person={person} /></span>
+                    <span className="rounded-full bg-linear-to-br from-violet-500 via-fuchsia-500 to-blue-500 p-0.5"><Avatar person={person} /></span>
                     <span className="w-full truncate text-[11px] text-slate-500">{person.name || person.username}</span>
                   </Link>
                 ))}
@@ -163,20 +163,20 @@ export default function HomeDashboard() {
                 <Link href={`/${profile.username}`}><Avatar person={profile} size="h-11 w-11" /></Link>
                 <div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{profile.name || profile.username}</p><p className="truncate text-xs text-slate-500">@{profile.username}</p></div>
               </div>
-              <div className="mt-4 flex items-center justify-between text-xs"><span className="text-slate-500">Profile completion</span><span className="font-medium text-blue-700">{profileCompletion}%</span></div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${profileCompletion}%` }} /></div>
+              <div className="mt-4 flex items-center justify-between text-xs"><span className="text-slate-500">Profile completion</span><span className="font-medium text-violet-600">{profileCompletion}%</span></div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500" style={{ width: `${profileCompletion}%` }} /></div>
               <Link href={`/${profile.username}?edit=1`} className="mt-4 block rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700 hover:bg-slate-200">Edit profile</Link>
             </section>
           ) : !loading ? (
             <section className={panel}>
               <h2 className="text-sm font-semibold text-slate-900">Join your community</h2>
               <p className="mt-2 text-xs leading-relaxed text-slate-500">Create a profile to follow people and share updates.</p>
-              <Link href="/login" className="mt-4 block rounded-lg bg-blue-600 px-3 py-2 text-center text-xs font-semibold text-white hover:bg-blue-500">Log in or sign up</Link>
+              <Link href="/login" className="mt-4 block rounded-lg bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500 px-3 py-2 text-center text-xs font-semibold text-white hover:bg-blue-500">Log in or sign up</Link>
             </section>
           ) : null}
 
           <section className={panel}>
-            <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-slate-900">Discover people</h2><Link href="/friends" className="text-xs text-blue-700">Friends</Link></div>
+            <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-slate-900">Discover people</h2><Link href="/friends" className="text-xs text-violet-600">Friends</Link></div>
             {loading ? <p className="text-xs text-slate-500">Finding people...</p> : discover.length ? (
               <div className="space-y-3">
                 {discover.map((person) => (
