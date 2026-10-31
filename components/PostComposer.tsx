@@ -96,20 +96,13 @@ async function recordClip(
       (maxBytes * 0.88 * 8) / duration
     );
 
-    const audioBps = Math.min(
-      96_000,
-      Math.max(48_000, Math.floor(targetTotalBps * 0.12))
-    );
-
-    const videoBps = Math.max(
-      150_000,
-      targetTotalBps - audioBps
-    );
+   const audioBps = 48_000;
+const videoBps = Math.max(180_000, targetTotalBps - audioBps);
 
     // Use lower resolution when the available bitrate is limited.
     const shortEdge =
-      videoBps >= 900_000 ? 720 :
-      videoBps >= 450_000 ? 480 :
+      videoBps >= 1_000_000 ? 720 :
+      videoBps >= 700_000 ? 480 :
       360;
 
     const scale = Math.min(
@@ -141,7 +134,7 @@ async function recordClip(
       context.filter = filterCss;
     }
 
-    stream = canvas.captureStream(24);
+stream = canvas.captureStream(20);
 
     audioContext = new AudioContext();
 
@@ -158,10 +151,10 @@ async function recordClip(
     });
 
     const mime = [
-      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
-      "video/mp4",
       "video/webm;codecs=vp9,opus",
       "video/webm;codecs=vp8,opus",
+      "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+      "video/mp4",
       "video/webm",
     ].find((type) => MediaRecorder.isTypeSupported(type));
 
