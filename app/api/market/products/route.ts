@@ -41,7 +41,7 @@ function readProduct(value: unknown, marketOrigin: string): MarketProduct | null
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" || url.origin !== marketOrigin) return null;
+  if (url.protocol !== "https:") return null;
 
   let imageUrl: string | null = null;
   if (typeof product.image_url === "string" && product.image_url.trim()) {
