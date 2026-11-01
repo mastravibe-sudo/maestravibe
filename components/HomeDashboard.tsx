@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Bell, Search, ShoppingBag } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useCurrentUser } from "@/components/CurrentUserContext";
 import DbFeed from "@/components/DbFeed";
 import GetAppButton from "@/components/GetAppButton";
 
@@ -17,15 +18,14 @@ function Avatar({ person, size = "h-12 w-12" }: { person: ProfileSummary; size?:
   return (
     <span className={`flex ${size} shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-zinc-800 font-semibold text-zinc-200`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {person.avatar_url ? <img src={person.avatar_url} alt="" className="h-full w-full object-cover" /> : (person.name || person.username).slice(0, 1).toUpperCase()}
+      {person.avatar_url ? <img src={person.avatar_url} alt="" loading="lazy" className="h-full w-full object-cover" /> : (person.name || person.username).slice(0, 1).toUpperCase()}
     </span>
   );
 }
 
 export default function HomeDashboard() {
   const [supabase] = useState(() => createClient());
-  const [userId, setUserId] = useState<string | null>(null);
-  const [profile, setProfile] = useState<ProfileSummary | null>(null);
+  const { userId, profile, ready } = useCurrentUser();
   const [following, setFollowing] = useState<ProfileSummary[]>([]);
   const [discover, setDiscover] = useState<ProfileSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,27 +33,20 @@ export default function HomeDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const loadCommunity = useCallback(async () => {
+    if (!ready) return;
     setError(null);
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError && authError.name !== "AuthSessionMissingError") setError(authError.message);
-    setUserId(user?.id ?? null);
-
-    if (!user) {
-      setProfile(null);
+    if (!userId) {
       setFollowing([]);
       setDiscover([]);
       setLoading(false);
       return;
     }
 
-    const [profileResult, followsResult, peopleResult] = await Promise.all([
-      supabase.from("profiles").select("id,username,name,bio,avatar_url").eq("id", user.id).maybeSingle(),
-      supabase.from("follows").select("followed_id").eq("follower_id", user.id),
-      supabase.from("profiles").select("id,username,name,bio,avatar_url").neq("id", user.id).order("created_at", { ascending: false }).limit(16),
+    const [followsResult, peopleResult] = await Promise.all([
+      supabase.from("follows").select("followed_id").eq("follower_id", userId),
+      supabase.from("profiles").select("id,username,name,bio,avatar_url").neq("id", userId).order("created_at", { ascending: false }).limit(16),
     ]);
 
-    if (profileResult.error) setError(profileResult.error.message);
-    setProfile((profileResult.data as ProfileSummary | null) ?? null);
     if (followsResult.error) setError(followsResult.error.message);
     if (peopleResult.error) setError(peopleResult.error.message);
 
@@ -62,7 +55,7 @@ export default function HomeDashboard() {
     setFollowing(profiles.filter((person) => followedIds.has(person.id)));
     setDiscover(profiles.filter((person) => !followedIds.has(person.id)).slice(0, 5));
     setLoading(false);
-  }, [supabase]);
+  }, [ready, supabase, userId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect

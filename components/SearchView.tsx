@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ExternalLink, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { Avatar, mediaOf, type Media } from "@/components/PostViewer";
+import { Avatar, mediaOf, type Media } from "@/components/postUtils";
 
 type Person = { id: string; username: string; name: string | null; bio: string | null; avatar_url: string | null };
 type Hit = { id: string; title: string | null; body: string; image_url: string | null; media: Media[] | null; profiles: { username: string; name: string | null; avatar_url: string | null } };

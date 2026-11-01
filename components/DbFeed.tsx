@@ -1,14 +1,19 @@
 // path: maestra-vibe/components/DbFeed.tsx  (poori file replace karo)
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Bookmark, Clapperboard, Flame, HandHeart, ImagePlus, MessageCircle, Play, Repeat2, Share2, Video } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { typeMeta } from "@/components/postMeta";
 import PostComposer from "@/components/PostComposer";
-import ShortsViewer from "@/components/ShortsViewer";
-import PostViewer, { Avatar, ago, mediaOf, type Orig, type Row } from "@/components/PostViewer";
+import { Avatar, ago, mediaOf, type Orig, type Row } from "@/components/postUtils";
+import { diversifyFeed, rankVideos } from "@/lib/feed/rank";
+import StatusBar from "@/components/StatusBar";
+
+const ShortsViewer = dynamic(() => import("@/components/ShortsViewer"), { loading: () => null });
+const PostViewer = dynamic(() => import("@/components/PostViewer"), { loading: () => null });
 
 const SELECT =
   "id,type,title,body,tags,location,media,image_url,created_at,user_id,comment_policy,comments_closed,share_policy,repost_of," +
@@ -30,11 +35,15 @@ export default function DbFeed() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [shorts, setShorts] = useState(false);
+  const [shortsRows, setShortsRows] = useState<Row[]>([]);
+  const [initialShortId, setInitialShortId] = useState<string | null>(null);
+  const [watched, setWatched] = useState<{ key: string; ids: string[] }>({ key: "", ids: [] });
   const [openId, setOpenId] = useState<string | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const deepLinked = useRef(false);
+  const watchedKey = `mv-short-watched:${me ?? "guest"}`;
 
   const flash = (t: string) => { setNote(t); setTimeout(() => setNote(""), 2200); };
   const fail = (e: unknown) => {
@@ -43,13 +52,19 @@ export default function DbFeed() {
   };
 
   const load = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const [authResult, postsResult] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.from("posts").select(SELECT).order("created_at", { ascending: false }).limit(40),
+    ]);
+    const user = authResult.data.user;
     setMe(user?.id ?? null);
     if (user) {
       const { data: f } = await supabase.from("follows").select("followed_id").eq("follower_id", user.id);
       setFollowing((f ?? []).map((x) => x.followed_id as string));
+    } else {
+      setFollowing([]);
     }
-    const { data, error: err } = await supabase.from("posts").select(SELECT).order("created_at", { ascending: false }).limit(40);
+    const { data, error: err } = postsResult;
     if (err) {
       setError(/column|schema cache/i.test(err.message) ? "Database update needed: run post_settings.sql and reactions.sql from supabase/migrations in the Supabase SQL Editor." : err.message);
       setLoading(false);
@@ -73,6 +88,15 @@ export default function DbFeed() {
   }, [load]);
 
   useEffect(() => {
+    let ids: string[] = [];
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(watchedKey) ?? "[]");
+      if (Array.isArray(stored)) ids = stored.filter((id): id is string => typeof id === "string");
+    } catch { /* ignore malformed local history */ }
+    setWatched({ key: watchedKey, ids });
+  }, [watchedKey]);
+
+  useEffect(() => {
     if (deepLinked.current || !rows.length) return;
     deepLinked.current = true;
     const id = new URLSearchParams(window.location.search).get("post");
@@ -86,6 +110,21 @@ export default function DbFeed() {
     await load();
   };
   const need = () => setError("Log in to do that.");
+  const requestActivityPush = async (activity: { type: "vibe" | "comment"; postId: string }) => {
+    try {
+      const response = await fetch("/api/notifications/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(activity),
+      });
+      if (!response.ok) {
+        const result = await response.json() as { error?: string };
+        setError(result.error || "Push notification delivery failed.");
+      }
+    } catch {
+      setError("Push notification delivery failed.");
+    }
+  };
 
   const react = async (r: Row, kind: "vibe" | "support" | "inspire" = "vibe") => {
     if (!me) return need();
@@ -96,7 +135,8 @@ export default function DbFeed() {
     }
     if (!mine || (mine.kind ?? "vibe") !== kind) {
       const { error: e } = await supabase.from("vibes").insert({ post_id: r.id, user_id: me, kind });
-      if (e) fail(e);
+      if (e) return fail(e);
+      void requestActivityPush({ type: "vibe", postId: r.id });
     }
     await load();
   };
@@ -107,7 +147,13 @@ export default function DbFeed() {
     await run(supabase.from("posts").insert({ user_id: me, type: r.type, body: "", repost_of: r.repost_of ?? r.id }));
     flash("Reposted to your profile");
   };
-  const comment = (r: Row, body: string) => !me ? need() : run(supabase.from("comments").insert({ post_id: r.id, user_id: me, body }));
+  const comment = async (r: Row, body: string) => {
+    if (!me) return need();
+    const { error: commentError } = await supabase.from("comments").insert({ post_id: r.id, user_id: me, body });
+    if (commentError) return fail(commentError);
+    void requestActivityPush({ type: "comment", postId: r.id });
+    await load();
+  };
   const hide = (r: Row) => {
     const next = [...hidden, r.id];
     setHidden(next);
@@ -128,8 +174,30 @@ export default function DbFeed() {
     flash("Link copied");
   };
 
-  const notHidden = rows.filter((r) => !hidden.includes(r.id));
-  const visible = notHidden.filter((r) => tab === "Following" ? r.user_id === me || following.includes(r.user_id) : tab === "Videos" ? isVideo(r) : true);
+  const notHidden = useMemo(() => rows.filter((r) => !hidden.includes(r.id)), [rows, hidden]);
+  const visible = useMemo(
+    () => notHidden.filter((r) => tab === "Following" ? r.user_id === me || following.includes(r.user_id) : tab === "Videos" ? isVideo(r) : true),
+    [notHidden, tab, me, following]
+  );
+  const feedRows = useMemo(() => diversifyFeed(visible), [visible]);
+  const watchedIds = watched.key === watchedKey ? watched.ids : [];
+  const rankedShorts = useMemo(
+    () => rankVideos(notHidden.filter(isVideo), { followedIds: following, watchedIds }),
+    [notHidden, following, watchedIds]
+  );
+  const openShorts = (initialId: string | null = null) => {
+    setShortsRows(rankedShorts);
+    setInitialShortId(initialId);
+    setShorts(true);
+  };
+  const markShortWatched = (id: string) => {
+    if (!id) return;
+    const current = watched.key === watchedKey ? watched.ids : [];
+    if (current.includes(id)) return;
+    const ids = [...current, id];
+    try { localStorage.setItem(watchedKey, JSON.stringify(ids)); } catch { /* retain history in memory */ }
+    setWatched({ key: watchedKey, ids });
+  };
   const open = rows.find((r) => r.id === openId) ?? null;
 
   return (
@@ -144,18 +212,20 @@ export default function DbFeed() {
         <Link href="/login" className={`${card} block p-4 text-center text-base text-[#c9c4e8] hover:bg-white/5`}>Log in or sign up to share your vibe</Link>
       ) : null}
 
+      <StatusBar userId={me} />
+
       <div className="flex items-center gap-2">
         <div className="flex flex-1 gap-1 rounded-full bg-[#141028] p-1" role="tablist" aria-label="Feed sections">
           {TABS.map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-10 flex-1 rounded-full text-sm font-medium ${tab === t ? `${BRAND} text-white shadow` : "text-[#c9c4e8]"}`}>{t}</button>)}
         </div>
-        <button onClick={() => setShorts(true)} className={`flex h-12 items-center gap-2 rounded-full px-4 text-sm font-semibold text-white ${BRAND}`}><Clapperboard className="h-5 w-5" aria-hidden="true" />Shorts</button>
+        <button onClick={() => openShorts()} className={`flex h-12 items-center gap-2 rounded-full px-4 text-sm font-semibold text-white ${BRAND}`}><Clapperboard className="h-5 w-5" aria-hidden="true" />Shorts</button>
       </div>
 
       {note ? <p role="status" className="rounded-lg bg-emerald-500/15 p-3 text-sm text-emerald-300">{note}</p> : null}
       {error ? <p role="alert" className="rounded-xl bg-red-500/15 p-3 text-sm text-red-300">{error}</p> : null}
-      {loading ? <p className="py-10 text-center text-[#a8a2c9]">Loading posts...</p> : visible.length === 0 && !error ? <p className="py-10 text-center text-[#a8a2c9]">{tab === "Following" ? "Follow people to see their posts here." : "Nothing here yet. Be the first to share your vibe."}</p> : null}
+      {loading ? <p className="py-10 text-center text-[#a8a2c9]">Loading posts...</p> : feedRows.length === 0 && !error ? <p className="py-10 text-center text-[#a8a2c9]">{tab === "Following" ? "Follow people to see their posts here." : "Nothing here yet. Be the first to share your vibe."}</p> : null}
 
-      {visible.map((r) => {
+      {feedRows.map((r, index) => {
         const a = r.profiles;
         const shown = r.original ?? r;
         const m = mediaOf(shown)[0];
@@ -163,7 +233,8 @@ export default function DbFeed() {
         const liked = !!me && r.vibes.some((v) => v.user_id === me);
         const saved = !!me && r.saves.some((s) => s.user_id === me);
         return (
-          <article key={r.id} className={card}>
+          <div key={r.id} className="space-y-4">
+          <article className={card}>
             <div className="h-1 w-full" style={{ background: `linear-gradient(90deg, ${meta.color}, #8b5cf6, #3b82f6)` }} />
             <div className="p-4">
               <header className="mb-3 flex items-center gap-3">
@@ -183,12 +254,12 @@ export default function DbFeed() {
                   <span className="relative mt-3 block overflow-hidden rounded-xl bg-black">
                     {m.type === "video" ? (
                       <>
-                        <video src={`${m.url}#t=0.1`} preload="metadata" muted playsInline className="max-h-[70vh] w-full object-cover" />
+                        <video src={`${m.url}#t=0.1`} preload={index < 2 ? "metadata" : "none"} muted playsInline className="max-h-[70vh] w-full object-cover" />
                         <span className="absolute inset-0 flex items-center justify-center"><span className="rounded-full bg-black/60 p-5 text-white"><Play className="h-8 w-8" /></span></span>
                       </>
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={m.url} alt="" className="max-h-[70vh] w-full object-cover" />
+                      <img src={m.url} alt="" loading="lazy" className="max-h-[70vh] w-full object-cover" />
                     )}
                   </span>
                 ) : null}
@@ -203,10 +274,30 @@ export default function DbFeed() {
               </footer>
             </div>
           </article>
+          {tab !== "Videos" && (index + 1) % 5 === 0 && rankedShorts.length > 0 ? (
+            <section aria-label="Shorts" className={`${card} p-4`}>
+              <header className="mb-3 flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-base font-semibold"><Clapperboard className="h-5 w-5 text-fuchsia-400" />Shorts</h2>
+                <button onClick={() => openShorts()} className="text-sm font-semibold text-violet-300">Watch all</button>
+              </header>
+              <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1">
+                {rankedShorts.slice(0, 8).map((short, shortIndex) => {
+                  const shortMedia = mediaOf(short.original ?? short)[0];
+                  return (
+                    <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-xl bg-black text-left sm:w-32">
+                      <video src={`${shortMedia.url}#t=0.1`} muted playsInline preload={shortIndex === 0 ? "metadata" : "none"} className="h-full w-full object-cover" />
+                      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 text-xs font-semibold text-white">@{short.profiles.username}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+          </div>
         );
       })}
 
-      {shorts ? <ShortsViewer rows={notHidden.filter(isVideo)} me={me} onClose={() => setShorts(false)} onVibe={(r) => void vibe(r)} onOpen={(r) => setOpenId(r.id)} onShare={(r) => void share(r)} /> : null}
+      {shorts ? <ShortsViewer rows={shortsRows} me={me} initialId={initialShortId} onClose={() => setShorts(false)} onVibe={(r) => void vibe(r)} onOpen={(r) => setOpenId(r.id)} onShare={(r) => void share(r)} onWatch={markShortWatched} /> : null}
       {open ? (
         <PostViewer
           row={open} me={me} onClose={() => setOpenId(null)}

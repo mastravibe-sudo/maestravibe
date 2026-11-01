@@ -4,8 +4,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
 import type { CSSProperties, ReactNode } from "react";
-import type { ProfileBlock, ProfileRecord } from "@/lib/profile-schema";
+import type { ProfileBlock, ProfileRecord, ProfileSticker } from "@/lib/profile-schema";
 import { createClient } from "@/lib/supabase/client";
+import { STICKERS } from "@/lib/stickers";
 import { typeInfo, type PostType } from "@/lib/posts";
 import { HeaderBlock, headerSkinStyle, parseHeaderStyle } from "@/components/profile/HeaderStyles";
 import { StatsBlock } from "@/components/profile/StatsStyles";
@@ -88,8 +89,12 @@ function BlockContent({
   const buttonStyle = asString(style.buttonStyle, profile.theme.buttonStyle);
   const links = Array.isArray(config.links) ? config.links.filter((item): item is { text?: string; href?: string } => !!item && typeof item === "object") : [];
   const images = Array.isArray(config.images) ? config.images.filter((item): item is string => typeof item === "string" && /^https:\/\//i.test(item)) : [];
+  const skin = profile.theme.skin ?? "glass";
   const shellStyle: CSSProperties = {
-    backgroundColor: style.textOnly === true ? "transparent" : asString(style.backgroundColor, "rgba(255,255,255,0.08)"),
+    backgroundColor: style.textOnly === true ? "transparent" : asString(
+      style.backgroundColor,
+      skin === "flat" ? "transparent" : skin === "soft" ? profile.theme.cardAlt : "rgba(255,255,255,0.08)"
+    ),
     color: asString(style.textColor, profile.theme.text),
     fontFamily: asString(style.fontFamily, profile.theme.fontBody),
     fontSize: `${clamp(isNumber(style.fontSize) ? style.fontSize : 16, 10, 52)}px`,
@@ -97,6 +102,8 @@ function BlockContent({
       ? (asString(style.textAlign, "left") as CSSProperties["textAlign"])
       : "left",
     borderRadius: `${clamp(isNumber(style.borderRadius) ? style.borderRadius : 18, 0, 48)}px`,
+    boxShadow: skin === "dimensional" ? "0 22px 50px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.22)" : undefined,
+    backdropFilter: skin === "glass" || skin === "dimensional" ? "blur(14px)" : undefined,
   };
 
   if (block.type === "header" && style.textOnly !== true) {
@@ -114,7 +121,7 @@ function BlockContent({
   if (block.type === "spacer") return null;
 
   return (
-    <div className={`h-full w-full overflow-auto p-4 ${style.textOnly === true ? "" : "border border-white/10 shadow-lg backdrop-blur-sm"}`} style={shellStyle}>
+    <div className={`h-full w-full overflow-auto p-4 ${style.textOnly === true ? "" : skin === "flat" ? "border border-white/10" : skin === "soft" ? "border border-white/10 shadow-md" : "border border-white/10 shadow-lg backdrop-blur-sm"}`} style={shellStyle}>
       {block.type === "header" ? <HeaderBlock profile={profile} style={style} action={action} /> : null}
 
       {block.type === "stats" ? <StatsBlock stats={{ ...stats, ...totals }} style={style} theme={profile.theme} /> : null}
@@ -165,7 +172,7 @@ function BlockContent({
           <div className="grid h-[calc(100%-2rem)] grid-cols-2 gap-2 sm:grid-cols-3">
             {images.map((image, index) => (
               // eslint-disable-next-line @next/next/no-img-element
-              <img key={`${image}-${index}`} src={image} alt="Gallery item" className="h-full min-h-16 w-full rounded-lg object-cover" />
+              <img key={`${image}-${index}`} src={image} alt="Gallery item" loading="lazy" className="h-full min-h-16 w-full rounded-lg object-cover" />
             ))}
             {!images.length ? <span className="text-sm opacity-60">Add photos in the inspector.</span> : null}
           </div>
@@ -183,7 +190,7 @@ function BlockContent({
               <article key={post.id} className="flex gap-2 rounded-lg border border-white/10 bg-black/10 p-2">
                 {post.image_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={post.image_url} alt="" className="h-14 w-14 shrink-0 rounded-md object-cover" />
+                  <img src={post.image_url} alt="" loading="lazy" className="h-14 w-14 shrink-0 rounded-md object-cover" />
                 ) : null}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2 text-[0.7em] opacity-65">
@@ -217,6 +224,9 @@ export default function ProfileCanvas({
   selectedBlockId,
   onSelectBlock,
   onGeometryChange,
+  selectedStickerId,
+  onStickerSelect,
+  onStickerUpdate,
   action,
 }: {
   profile: ProfileRecord;
@@ -226,6 +236,9 @@ export default function ProfileCanvas({
   selectedBlockId?: string | null;
   onSelectBlock?: (id: string) => void;
   onGeometryChange?: (id: string, geometry: BlockGeometry) => void;
+  selectedStickerId?: string | null;
+  onStickerSelect?: (id: string) => void;
+  onStickerUpdate?: (id: string, update: Partial<ProfileSticker>) => void;
   action?: ReactNode;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -276,7 +289,7 @@ export default function ProfileCanvas({
   return (
     <div
       ref={stageRef}
-      className={`profile-canvas-stage relative isolate mx-auto w-full overflow-hidden border border-white/15 ${editable ? "rounded-xl" : "rounded-[28px] shadow-2xl"}`}
+      className={`profile-canvas-stage ${editable ? "profile-canvas-editor" : ""} relative isolate mx-auto w-full overflow-hidden border border-white/15 ${editable ? "rounded-xl" : "rounded-[28px] shadow-2xl"}`}
       style={{
         backgroundColor: profile.theme.page,
         backgroundImage,
@@ -287,6 +300,61 @@ export default function ProfileCanvas({
       }}
     >
       {editable ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "linear-gradient(to right, rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,.08) 1px, transparent 1px)", backgroundSize: "5% 5%" }} /> : null}
+      {(profile.theme.stickers ?? []).map((sticker) => {
+        const stickerSource = sticker.type === "svg" ? STICKERS.find((item) => item.id === sticker.value)?.src : null;
+        if (sticker.type === "svg" && !stickerSource) return null;
+        const stickerContent = sticker.type === "emoji"
+          ? <span className="flex h-full w-full items-center justify-center leading-none">{sticker.value}</span>
+          : (
+            // Local SVG data URI assets do not benefit from image optimization.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={stickerSource ?? ""} alt="" draggable={false} className="h-full w-full object-contain" />
+          );
+        if (!editable) {
+          return (
+            <div key={sticker.id} aria-hidden="true" className="pointer-events-none absolute z-30 aspect-square" style={{ left: `${sticker.x}%`, top: `${sticker.y}%`, width: `${sticker.size}%`, transform: `rotate(${sticker.rotation}deg)`, fontSize: `${Math.max(28, stageSize.width * sticker.size / 100 * 0.78)}px` }}>
+              {stickerContent}
+            </div>
+          );
+        }
+
+        const selected = sticker.id === selectedStickerId;
+        const size = stageSize.width * sticker.size / 100;
+        return (
+          <Rnd
+            key={sticker.id}
+            bounds="parent"
+            position={{ x: stageSize.width * sticker.x / 100, y: stageSize.height * sticker.y / 100 }}
+            size={{ width: size, height: size }}
+            lockAspectRatio
+            minWidth={44}
+            minHeight={44}
+            enableResizing={selected}
+            resizeHandleStyles={{
+              bottomRight: { width: 28, height: 28, right: -10, bottom: -10, borderRadius: 999, background: "#c4b5fd", border: "2px solid #18181b" },
+            }}
+            className={`touch-none ${selected ? "z-30 ring-2 ring-violet-300" : "z-[25] hover:ring-1 hover:ring-white/60"}`}
+            onMouseDown={() => onStickerSelect?.(sticker.id)}
+            onTouchStart={() => onStickerSelect?.(sticker.id)}
+            onDragStop={(_event, data) => onStickerUpdate?.(sticker.id, {
+              x: clamp((data.x / stageSize.width) * 100, 0, 100 - sticker.size),
+              y: clamp((data.y / stageSize.height) * 100, 0, 100 - (size / stageSize.height) * 100),
+            })}
+            onResizeStop={(_event, _direction, element, _delta, position) => {
+              const nextSize = clamp((element.offsetWidth / stageSize.width) * 100, 5, 40);
+              onStickerUpdate?.(sticker.id, {
+                x: clamp((position.x / stageSize.width) * 100, 0, 100 - nextSize),
+                y: clamp((position.y / stageSize.height) * 100, 0, 100 - (element.offsetHeight / stageSize.height) * 100),
+                size: nextSize,
+              });
+            }}
+          >
+            <div className="h-full w-full cursor-grab select-none active:cursor-grabbing" style={{ transform: `rotate(${sticker.rotation}deg)`, fontSize: `${Math.max(28, size * 0.78)}px` }} onClick={() => onStickerSelect?.(sticker.id)}>
+              {stickerContent}
+            </div>
+          </Rnd>
+        );
+      })}
       {blocks.map((block, index) => {
         const geometry = getBlockGeometry(block, index);
         if (block.style?.hidden === true && !block.locked && !editable) return null;

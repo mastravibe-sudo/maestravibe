@@ -2,12 +2,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ImagePlus, MapPin, Scissors, Smile, Type, Video, X } from "lucide-react";
+import { ArrowLeft, ImagePlus, MapPin, Scissors, Smile, Sparkles, Type, Video, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { generateAiSuggestions } from "@/lib/ai/generate";
 import { MEDIA_LIMITS, compressImage, readVideoMeta, type VideoMeta } from "@/lib/media/compress";
 import { EMOJIS } from "@/lib/stickers";
 import { typeMeta } from "@/components/postMeta";
-import type { Media } from "@/components/PostViewer";
+import type { Media } from "@/components/postUtils";
 import type { PostType } from "@/lib/posts";
 
 const FILTERS = [
@@ -300,6 +301,8 @@ export default function PostComposer({ me, onClose, onPublished }: { me: string;
   const [type, setType] = useState<PostType>("vibe");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [captionSuggestions, setCaptionSuggestions] = useState<string[]>([]);
+  const [suggestingCaption, setSuggestingCaption] = useState(false);
   const [emoji, setEmoji] = useState(false);
   const [tagsText, setTagsText] = useState("");
   const [location, setLocation] = useState("");
@@ -397,6 +400,26 @@ if (clip.size > MEDIA_LIMITS.videoMaxBytes) {
     setBusy(false);
   };
 
+  const suggestCaptions = async () => {
+    setSuggestingCaption(true);
+    setError("");
+    setCaptionSuggestions([]);
+    try {
+      const suggestions = await generateAiSuggestions("caption", {
+        title,
+        caption: body,
+        postType: type,
+        tags: tagsText,
+        location,
+      });
+      setCaptionSuggestions(suggestions);
+    } catch (suggestionError) {
+      setError(suggestionError instanceof Error ? suggestionError.message : "Could not generate caption suggestions.");
+    } finally {
+      setSuggestingCaption(false);
+    }
+  };
+
   const clipEnd = vmeta ? Math.min(vmeta.duration, start + MEDIA_LIMITS.videoMaxSeconds) : 0;
 
   return (
@@ -471,8 +494,20 @@ if (clip.size > MEDIA_LIMITS.videoMaxBytes) {
               <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100} placeholder="Title (optional)" className={input} />
               <div>
                 <textarea value={body} onChange={(e) => setBody(e.target.value)} maxLength={1000} rows={4} placeholder="Write a caption..." className={input} />
-                <button onClick={() => setEmoji(!emoji)} className="mt-1 flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200"><Smile className="h-4 w-4" />Emoji</button>
+                <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <button type="button" onClick={() => setEmoji(!emoji)} className="flex min-h-10 items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200"><Smile className="h-4 w-4" />Emoji</button>
+                  <button type="button" onClick={() => void suggestCaptions()} disabled={suggestingCaption} className="flex min-h-10 items-center gap-1.5 text-xs font-medium text-violet-300 hover:text-violet-200 disabled:opacity-50"><Sparkles className="h-4 w-4" />{suggestingCaption ? "Generating..." : "Suggest captions"}</button>
+                </div>
                 {emoji ? <div className="mt-1 grid max-h-28 grid-cols-8 gap-1 overflow-y-auto rounded-lg bg-zinc-800 p-2 text-xl">{EMOJIS.map((e) => <button key={e} onClick={() => setBody((b) => b + e)} className="rounded hover:bg-white/10">{e}</button>)}</div> : null}
+                {captionSuggestions.length ? (
+                  <div className="mt-2 space-y-2" aria-label="AI caption suggestions">
+                    {captionSuggestions.map((suggestion, index) => (
+                      <button key={`${index}-${suggestion}`} type="button" onClick={() => { setBody(suggestion); setCaptionSuggestions([]); }} className="block min-h-11 w-full rounded-xl border border-violet-300/20 bg-violet-400/5 px-3 py-2 text-left text-sm text-zinc-200 hover:bg-violet-400/10">
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <input value={tagsText} onChange={(e) => setTagsText(e.target.value)} placeholder="Tags: travel, dreams, startup (max 10)" className={input} />
               <div className="relative"><MapPin className="absolute left-3 top-3 h-4 w-4 text-zinc-500" /><input value={location} onChange={(e) => setLocation(e.target.value)} maxLength={80} placeholder="Add location" className={`${input} pl-9`} /></div>

@@ -18,6 +18,16 @@ export const templateIdSchema = z.enum([
   "retro-terminal",
 ]);
 
+export const profileStickerSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(["emoji", "svg"]),
+  value: z.string().min(1).max(2048),
+  x: z.number().min(0).max(100).default(38),
+  y: z.number().min(0).max(100).default(28),
+  size: z.number().min(5).max(40).default(16),
+  rotation: z.number().min(-180).max(180).default(0),
+});
+
 export const profileThemeSchema = z.object({
   page: hexColorSchema,
   pageAlt: hexColorSchema,
@@ -35,6 +45,9 @@ export const profileThemeSchema = z.object({
   shadow: z.string().default("0 20px 60px rgba(96, 76, 175, 0.28)"),
   fontHeading: fontOptionSchema.default("Inter"),
   fontBody: fontOptionSchema.default("Inter"),
+  skin: z.enum(["glass", "soft", "flat", "dimensional"]).default("glass"),
+  layout: z.enum(["canvas", "stacked", "showcase"]).default("canvas"),
+  stickers: z.array(profileStickerSchema).max(30).default([]),
   buttonStyle: z.enum(["filled", "outline", "ghost"]).default("filled"),
   sectionSpacing: z.number().int().min(8).max(40).default(24),
 });
@@ -95,6 +108,9 @@ export const profileRecordSchema = z.object({
     shadow: "0 20px 60px rgba(96, 76, 175, 0.28)",
     fontHeading: "Inter",
     fontBody: "Inter",
+    skin: "glass",
+    layout: "canvas",
+    stickers: [],
     buttonStyle: "filled",
     sectionSpacing: 24,
   }),
@@ -107,5 +123,6 @@ export const profileRecordSchema = z.object({
 });
 
 export type ProfileTheme = z.infer<typeof profileThemeSchema>;
+export type ProfileSticker = z.infer<typeof profileStickerSchema>;
 export type ProfileBlock = z.infer<typeof profileBlockSchema>;
 export type ProfileRecord = z.infer<typeof profileRecordSchema>;

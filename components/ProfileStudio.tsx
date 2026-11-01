@@ -1,18 +1,30 @@
 // path: maestra-vibe/components/ProfileStudio.tsx  (poori file replace karo)
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Sparkles } from "lucide-react";
+import EmojiPicker, { Theme as EmojiTheme, type EmojiClickData } from "emoji-picker-react";
 import { createClient } from "@/lib/supabase/client";
-import type { ProfileBlock, ProfileRecord, ProfileTheme } from "@/lib/profile-schema";
+import { useCurrentUser } from "@/components/CurrentUserContext";
+import { generateAiSuggestions } from "@/lib/ai/generate";
+import type { ProfileBlock, ProfileRecord, ProfileSticker, ProfileTheme } from "@/lib/profile-schema";
 import { templateCatalog, type TemplateId } from "@/lib/templates";
 import ProfileCanvas, { getBlockGeometry, type BlockGeometry } from "@/components/ProfileCanvas";
+import ProfileView from "@/components/ProfileView";
 import { HeaderStylePicker } from "@/components/profile/HeaderStyles";
 import { StatsStylePicker } from "@/components/profile/StatsStyles";
+import { STICKERS } from "@/lib/stickers";
 
 const MAX_IMAGE_BYTES = 100 * 1024;
 const IMAGE_QUALITIES = [0.86, 0.76, 0.66, 0.56, 0.46, 0.36, 0.28, 0.2];
 type BlockType = ProfileBlock["type"];
+const stickerCategories = {
+  All: STICKERS.map((sticker) => sticker.id),
+  Vibes: ["star", "bolt", "flame", "wow"],
+  Love: ["heart"],
+  Achievements: ["crown", "diamond", "check"],
+} as const;
 
 async function compressImage(file: File) {
   const objectUrl = URL.createObjectURL(file);
@@ -123,6 +135,7 @@ export default function ProfileStudio({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
+  const { profile: currentUserProfile, setProfile: setCurrentUserProfile } = useCurrentUser();
   const [identity, setIdentity] = useState({
     name: profile.name ?? "",
     bio: profile.bio ?? "",
@@ -131,19 +144,40 @@ export default function ProfileStudio({
     visibility: profile.visibility ?? "public",
     template: (profile.template as TemplateId) ?? "aurora",
   });
-  const [theme, setTheme] = useState<ProfileTheme>(profile.theme);
+  const [theme, setTheme] = useState<ProfileTheme>(() => ({
+    ...profile.theme,
+    skin: profile.theme.skin ?? "glass",
+    layout: profile.theme.layout ?? "canvas",
+    stickers: profile.theme.stickers ?? [],
+  }));
   const [blocks, setBlocks] = useState<ProfileBlock[]>(() => profile.blocks.length ? profile.blocks : defaultBlocks(profile));
   const [selectedId, setSelectedId] = useState<string | null>(() => profile.blocks[0]?.id ?? null);
+  const [selectedStickerId, setSelectedStickerId] = useState<string | null>(null);
+  const [stickerCategory, setStickerCategory] = useState<keyof typeof stickerCategories>("All");
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [optimisticProfile, setOptimisticProfile] = useState<ProfileRecord | null>(null);
   const [uploading, setUploading] = useState<"avatar" | "banner" | "gallery" | null>(null);
-  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
-  const [mobileInspectorTab, setMobileInspectorTab] = useState<"section" | "page">("section");
+  const [generatingBio, setGeneratingBio] = useState(false);
+  const [activeTool, setActiveTool] = useState<"templates" | "skins" | "stickers" | "fonts" | "colors" | "layout">("templates");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const inspectorRef = useRef<HTMLElement>(null);
 
   const selectedBlock = blocks.find((block) => block.id === selectedId) ?? null;
   const previewProfile = { ...profile, ...identity, theme } as ProfileRecord;
+
+  const generateBio = async () => {
+    setGeneratingBio(true);
+    setError(null);
+    try {
+      const suggestions = await generateAiSuggestions("bio", { name: identity.name, bio: identity.bio });
+      setIdentity((current) => ({ ...current, bio: suggestions[0] }));
+    } catch (generationError) {
+      setError(messageOf(generationError, "Could not generate a bio."));
+    } finally {
+      setGeneratingBio(false);
+    }
+  };
 
   const updateBlock = (id: string, update: (block: ProfileBlock) => ProfileBlock) => {
     setBlocks((current) => current.map((block) => block.id === id ? update(block) : block));
@@ -161,18 +195,67 @@ export default function ProfileStudio({
     updateBlock(id, (block) => ({ ...block, style: { ...block.style, ...geometry } }));
   };
 
-  const selectCanvasBlock = (id: string) => {
-    setSelectedId(id);
-    if (window.matchMedia("(max-width: 1023px)").matches) {
-      setMobileInspectorTab("section");
-      setMobileInspectorOpen(true);
-      window.setTimeout(() => document.getElementById(`block-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+  const addSticker = (type: ProfileSticker["type"], value: string) => {
+    const stickers = theme.stickers ?? [];
+    if (stickers.length >= 30) {
+      setError("A profile can have up to 30 stickers.");
+      return;
     }
+    const sticker: ProfileSticker = {
+      id: crypto.randomUUID(),
+      type,
+      value,
+      x: 38,
+      y: 29,
+      size: type === "emoji" ? 14 : 16,
+      rotation: 0,
+    };
+    setTheme((current) => ({ ...current, stickers: [...(current.stickers ?? []), sticker] }));
+    setSelectedStickerId(sticker.id);
   };
 
-  const openMobileInspector = (tab: "section" | "page") => {
-    setMobileInspectorTab(tab);
-    setMobileInspectorOpen(true);
+  const updateSticker = (id: string, update: Partial<ProfileSticker>) => {
+    setTheme((current) => ({
+      ...current,
+      stickers: (current.stickers ?? []).map((sticker) => sticker.id === id ? { ...sticker, ...update } : sticker),
+    }));
+  };
+
+  const removeSelectedSticker = () => {
+    if (!selectedStickerId) return;
+    setTheme((current) => ({ ...current, stickers: (current.stickers ?? []).filter((sticker) => sticker.id !== selectedStickerId) }));
+    setSelectedStickerId(null);
+  };
+
+  const selectCanvasBlock = (id: string) => {
+    setSelectedId(id);
+  };
+
+  const applyLayout = (layout: ProfileTheme["layout"]) => {
+    setTheme((current) => ({ ...current, layout }));
+    if (layout === "canvas") return;
+
+    const positions: Record<string, BlockGeometry> = layout === "stacked"
+      ? {
+          header: { x: 5, y: 4, width: 90, height: 16 },
+          stats: { x: 5, y: 22, width: 90, height: 10 },
+          about: { x: 5, y: 35, width: 90, height: 15 },
+          links: { x: 5, y: 53, width: 90, height: 14 },
+          gallery: { x: 5, y: 69, width: 90, height: 18 },
+          posts: { x: 5, y: 89, width: 90, height: 10 },
+        }
+      : {
+          header: { x: 5, y: 4, width: 90, height: 16 },
+          stats: { x: 5, y: 22, width: 90, height: 10 },
+          gallery: { x: 5, y: 35, width: 90, height: 28 },
+          about: { x: 5, y: 66, width: 55, height: 18 },
+          links: { x: 63, y: 66, width: 32, height: 18 },
+          posts: { x: 5, y: 87, width: 90, height: 11 },
+        };
+    setBlocks((current) => current.map((block) => {
+      const geometry = positions[block.type];
+      return geometry ? { ...block, style: { ...block.style, ...geometry } } : block;
+    }));
   };
 
   const addBlock = (type: BlockType) => {
@@ -282,9 +365,41 @@ export default function ProfileStudio({
   };
 
   const save = async () => {
+    if (saving || uploading !== null) return;
     setSaving(true);
     setError(null);
     setSuccess(null);
+    const savedAt = new Date().toISOString();
+    const activeIds = new Set(blocks.map((block) => block.id));
+    const deletedIds = profile.blocks.filter((block) => !block.locked && !activeIds.has(block.id)).map((block) => block.id);
+    const optimisticBlocks = blocks.map((block, position) => {
+      const geometry = getBlockGeometry(block, position);
+      return {
+        ...block,
+        position,
+        profile_id: profile.id,
+        style: block.locked ? { ...block.style, ...geometry, hidden: false } : { ...block.style, ...geometry },
+      };
+    });
+    const previousCurrentProfile = currentUserProfile;
+    setCurrentUserProfile((current) => current ? {
+      ...current,
+      name: identity.name.trim(),
+      bio: identity.bio.trim(),
+      avatar_url: identity.avatar_url.trim() || null,
+    } : current);
+    setOptimisticProfile({
+      ...profile,
+      ...identity,
+      name: identity.name.trim(),
+      bio: identity.bio.trim(),
+      avatar_url: identity.avatar_url.trim() || null,
+      banner_url: identity.banner_url.trim() || null,
+      theme,
+      updated_at: savedAt,
+      blocks: optimisticBlocks,
+    });
+    setSuccess("Saving your profile…");
     try {
       const { data: { user }, error: sessionError } = await supabase.auth.getUser();
       if (sessionError) throw new Error(`Session check: ${sessionError.message}`);
@@ -292,26 +407,27 @@ export default function ProfileStudio({
         throw new Error("Your browser session does not own this profile. Log out, log back in, and retry.");
       }
 
-      const { data: savedProfile, error: profileError } = await supabase
-        .from("profiles")
-        .update({
-          name: identity.name.trim(),
-          bio: identity.bio.trim(),
-          avatar_url: identity.avatar_url.trim() || null,
-          banner_url: identity.banner_url.trim() || null,
-          visibility: identity.visibility,
-          template: identity.template,
-          theme,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", profile.id)
-        .select("id")
-        .maybeSingle();
-      if (profileError) throw new Error(`Profile details: ${profileError.message}`);
-      if (!savedProfile) throw new Error("No profile row was updated. Log in again and retry.");
+      const profileWrite = async () => {
+        const { data: savedProfile, error: profileError } = await supabase
+          .from("profiles")
+          .update({
+            name: identity.name.trim(),
+            bio: identity.bio.trim(),
+            avatar_url: identity.avatar_url.trim() || null,
+            banner_url: identity.banner_url.trim() || null,
+            visibility: identity.visibility,
+            template: identity.template,
+            theme,
+            updated_at: savedAt,
+          })
+          .eq("id", profile.id)
+          .select("id")
+          .maybeSingle();
+        if (profileError) throw new Error(`Profile details: ${profileError.message}`);
+        if (!savedProfile) throw new Error("No profile row was updated. Log in again and retry.");
+      };
 
-      const activeIds = new Set(blocks.map((block) => block.id));
-      for (const [position, block] of blocks.entries()) {
+      const blockWrites = blocks.map(async (block, position) => {
         const geometry = getBlockGeometry(block, position);
         const values = {
           position,
@@ -341,21 +457,28 @@ export default function ProfileStudio({
           if (updateError) throw new Error(`Section update: ${updateError.message}`);
           if (!data) throw new Error("A section was not updated. Run the visual-builder SQL migration and retry.");
         }
-      }
+      });
 
-      const deletedIds = profile.blocks.filter((block) => !block.locked && !activeIds.has(block.id)).map((block) => block.id);
-      if (deletedIds.length) {
+      const deleteWrite = async () => {
+        if (!deletedIds.length) return;
         const { error: deleteError } = await supabase
           .from("profile_blocks")
           .delete()
           .in("id", deletedIds)
           .eq("profile_id", profile.id);
         if (deleteError) throw new Error(`Removed sections: ${deleteError.message}`);
-      }
+      };
+
+      const writes = await Promise.allSettled([profileWrite(), Promise.all(blockWrites), deleteWrite()]);
+      const failedWrite = writes.find((write) => write.status === "rejected");
+      if (failedWrite?.status === "rejected") throw failedWrite.reason;
       setSuccess("Your profile layout is saved.");
       router.replace(`/${profile.username}`);
       router.refresh();
     } catch (saveError) {
+      setCurrentUserProfile(previousCurrentProfile);
+      setOptimisticProfile(null);
+      setSuccess(null);
       setError(messageOf(saveError, "Could not save your profile."));
     } finally {
       setSaving(false);
@@ -363,7 +486,7 @@ export default function ProfileStudio({
   };
 
   const uploadControl = (kind: "avatar" | "banner") => (
-    <label className="inline-flex cursor-pointer items-center rounded-md border border-white/10 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-white/5">
+    <label className="inline-flex min-h-12 cursor-pointer items-center justify-center rounded-xl border border-white/10 px-3 py-2 text-sm text-zinc-200 hover:bg-white/5">
       {uploading === kind ? "Preparing..." : `Upload ${kind}`}
       <input
         type="file"
@@ -380,28 +503,44 @@ export default function ProfileStudio({
   );
 
   const themeColor = (key: "page" | "accent" | "text" | "buttonText", label: string) => (
-    <label className="flex items-center justify-between gap-3 text-xs text-zinc-400">
+    <label key={key} className="flex min-h-16 items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-200">
       <span>{label}</span>
-      <input type="color" value={theme[key]} onChange={(event) => setTheme((current) => ({ ...current, [key]: event.target.value }))} className="h-8 w-11 cursor-pointer rounded border-0 bg-transparent p-0" />
+      <input aria-label={label} type="color" value={theme[key]} onChange={(event) => setTheme((current) => ({ ...current, [key]: event.target.value }))} className="h-12 w-14 cursor-pointer rounded-xl border-0 bg-transparent p-0" />
     </label>
   );
 
+  if (optimisticProfile) {
+    return (
+      <>
+        <ProfileView
+          profile={optimisticProfile}
+          access={{ isOwner: true, canView: true, viewerId: profile.id }}
+          stats={stats}
+          isFollowing={false}
+        />
+        <div role="status" aria-live="polite" className="fixed inset-x-3 bottom-4 z-[80] mx-auto max-w-xl rounded-2xl border border-violet-300/20 bg-[#141028]/95 px-4 py-3 text-center text-sm text-violet-100 shadow-xl backdrop-blur">
+          {saving ? "Saving your profile…" : "Your profile is saved."}
+        </div>
+      </>
+    );
+  }
+
   return (
-    <main className={`mx-auto max-w-375 px-3 py-5 text-zinc-100 sm:px-5 ${mobileInspectorOpen ? "pb-[52vh]" : ""} lg:pb-5`}>
+    <main className="mx-auto min-h-dvh max-w-[1440px] px-3 pb-[58dvh] pt-4 text-zinc-100 sm:px-5 lg:pb-8">
       <header className="sticky top-0 z-30 -mx-3 mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-zinc-950/95 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-300">Profile studio / @{profile.username}</p>
           <h1 className="mt-1 text-2xl font-semibold text-white">Design your profile</h1>
         </div>
-        <button onClick={save} disabled={saving || uploading !== null} className="rounded-lg bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:opacity-50">
-          {saving ? "Saving layout..." : "Save changes"}
+        <button onClick={save} disabled={saving || uploading !== null} className="min-h-12 rounded-2xl bg-violet-500 px-5 text-sm font-bold text-white shadow-lg shadow-violet-950/30 hover:bg-violet-400 disabled:opacity-50">
+          {saving ? "Saving..." : "Save"}
         </button>
       </header>
 
-      {error ? <p role="alert" className="mb-3 rounded-lg border border-red-400/30 bg-red-950/50 p-3 text-sm text-red-200">{error}</p> : null}
+      {error ? <p role="alert" className="fixed inset-x-3 bottom-4 z-[80] mx-auto max-w-xl rounded-2xl border border-red-400/30 bg-red-950/95 p-3 text-sm text-red-200 shadow-xl">{error}</p> : null}
       {success ? <p role="status" className="mb-3 rounded-lg border border-emerald-400/30 bg-emerald-950/40 p-3 text-sm text-emerald-200">{success}</p> : null}
 
-      <div className="mb-4 border-b border-white/10 pb-3">
+      <div className="mb-4 hidden border-b border-white/10 pb-3 lg:block">
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
           <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Add</span>
           {([
@@ -420,7 +559,7 @@ export default function ProfileStudio({
         </label>
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
         <section className="min-w-0 rounded-xl border border-white/10 bg-zinc-900/60 p-2 sm:p-4">
           <div className="mb-3 flex items-center justify-between px-1 text-xs text-zinc-500">
             <span>Canvas</span><span>{blocks.filter((block) => block.style.hidden !== true).length} visible sections</span>
@@ -433,27 +572,132 @@ export default function ProfileStudio({
             selectedBlockId={selectedId}
             onSelectBlock={selectCanvasBlock}
             onGeometryChange={setGeometry}
+            selectedStickerId={selectedStickerId}
+            onStickerSelect={(id) => {
+              setSelectedStickerId(id);
+              setActiveTool("stickers");
+            }}
+            onStickerUpdate={updateSticker}
           />
         </section>
 
-        <div className={`fixed inset-x-3 bottom-19 z-40 mx-auto max-w-md gap-2 rounded-xl border border-white/15 bg-zinc-950/95 p-2 shadow-2xl backdrop-blur ${mobileInspectorOpen ? "hidden" : "flex"} lg:hidden`}>
-          <button onClick={() => openMobileInspector("section")} className="min-w-0 flex-1 truncate rounded-lg bg-zinc-800 px-3 py-2.5 text-sm font-medium text-white">
-            Edit {selectedBlock ? selectedBlock.type : "section"}
-          </button>
-          <button onClick={() => openMobileInspector("page")} className="shrink-0 rounded-lg border border-white/10 px-3 py-2.5 text-sm text-zinc-200">
-            Page styles
-          </button>
-        </div>
+        <aside className={`fixed inset-x-0 bottom-0 z-40 mx-auto flex w-full max-w-2xl flex-col overflow-hidden rounded-t-[28px] border border-white/15 bg-zinc-950/95 shadow-[0_-18px_70px_rgba(0,0,0,.55)] backdrop-blur-2xl ${panelCollapsed ? "h-[68px] lg:h-auto" : "max-h-[58dvh]"} lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:rounded-[26px]`}>
+          <div className="flex shrink-0 items-center border-b border-white/10">
+          <div role="tablist" aria-label="Profile editor tools" className="flex min-w-0 flex-1 gap-1 overflow-x-auto px-2 py-2 scrollbar-thin">
+            {([
+              ["templates", "Templates"], ["skins", "Skins"], ["stickers", "Stickers"], ["fonts", "Fonts"], ["colors", "Colors"], ["layout", "Layout"],
+            ] as const).map(([id, label]) => (
+              <button key={id} role="tab" aria-selected={activeTool === id} onClick={() => { setActiveTool(id); setPanelCollapsed(false); }} className={`min-h-12 shrink-0 rounded-2xl px-4 text-sm font-semibold transition ${activeTool === id ? "bg-violet-400/15 text-violet-200 ring-1 ring-violet-300/30" : "text-zinc-400 hover:bg-white/5 hover:text-white"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setPanelCollapsed((collapsed) => !collapsed)} aria-label={panelCollapsed ? "Expand editor panel" : "Collapse editor panel"} className="min-h-12 shrink-0 px-4 text-lg text-zinc-300 lg:hidden">{panelCollapsed ? "⌃" : "⌄"}</button>
+          </div>
+          <div className={`${panelCollapsed ? "hidden" : "min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4"}`}>
+          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${activeTool === "templates" ? "block" : "hidden"}`}>
+            <h2 className="text-base font-semibold">Choose a starting look</h2>
+            <p className="mb-3 mt-1 text-xs text-zinc-400">Swipe through styles. Your preview updates as soon as you choose one.</p>
+            <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
+              {Object.values(templateCatalog).map((template, index) => {
+                const threeDimensional = index % 3 !== 1;
+                return (
+                  <button key={template.id} onClick={() => applyTemplate(template.id)} aria-pressed={identity.template === template.id} className={`w-[220px] shrink-0 snap-start rounded-[24px] border p-2 text-left transition ${identity.template === template.id ? "border-violet-300 bg-violet-400/10 ring-2 ring-violet-400/40" : "border-white/10 bg-white/[0.03]"}`}>
+                    <div className="flex h-32 items-center justify-center overflow-hidden rounded-[18px]" style={{ background: template.background.value }}>
+                      <div className={`w-[78%] rounded-2xl border p-3 shadow-xl ${threeDimensional ? "[transform:perspective(520px)_rotateY(-9deg)_rotateX(5deg)]" : ""}`} style={{ background: template.colors.card, borderColor: template.colors.border, color: template.colors.text, boxShadow: template.shadow }}>
+                        <div className="mb-3 flex items-center gap-2"><span className="h-7 w-7 rounded-full" style={{ background: template.colors.accent }} /><span className="h-2 w-20 rounded-full" style={{ background: template.colors.text }} /></div>
+                        <div className="mb-2 h-2 w-3/4 rounded-full" style={{ background: template.colors.accent }} />
+                        <div className="grid grid-cols-2 gap-2"><span className="h-7 rounded-lg" style={{ background: template.colors.cardAlt }} /><span className="h-7 rounded-lg" style={{ background: template.colors.cardAlt }} /></div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 px-1 pb-1 pt-3"><span className="font-semibold">{template.name}</span><span className="rounded-full bg-white/10 px-2 py-1 text-[10px] text-zinc-300">{threeDimensional ? "3D" : "2D"}</span></div>
+                    <p className="px-1 pb-1 text-xs leading-relaxed text-zinc-400">{template.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
-        <aside ref={inspectorRef} className={`min-w-0 space-y-3 overflow-y-auto bg-zinc-950 p-3 ${mobileInspectorOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[48vh] rounded-t-2xl border-t border-white/15 shadow-2xl" : "hidden"} lg:sticky lg:inset-x-auto lg:bottom-auto lg:top-24 lg:z-10 lg:block lg:max-h-[calc(100vh-7rem)] lg:rounded-xl lg:border lg:border-white/10 lg:shadow-none`}>
-          <button onClick={() => setMobileInspectorOpen(false)} className="ml-auto block rounded-full bg-zinc-800 px-3 py-1.5 text-xs lg:hidden">Close ✕</button>
+          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${activeTool === "skins" ? "block" : "hidden"}`}>
+            <h2 className="text-base font-semibold">Surface and depth</h2><p className="mb-3 mt-1 text-xs text-zinc-400">Choose a finish for your profile sections.</p>
+            <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
+              {([
+                { id: "glass", title: "Glass", detail: "Blur and luminous edges", effect: "bg-white/15 backdrop-blur-xl border border-white/40" },
+                { id: "soft", title: "Soft", detail: "Warm layered surfaces", effect: "border border-white/20 shadow-lg" },
+                { id: "flat", title: "Flat", detail: "Minimal, transparent cards", effect: "border border-white/40" },
+                { id: "dimensional", title: "Dimension", detail: "Depth and 3D highlights", effect: "border border-white/40 shadow-2xl [transform:perspective(500px)_rotateY(-10deg)_rotateX(5deg)]" },
+              ] as const).map((skin) => (
+                <button key={skin.id} onClick={() => setTheme((current) => ({ ...current, skin: skin.id }))} aria-pressed={(theme.skin ?? "glass") === skin.id} className={`w-[190px] shrink-0 snap-start rounded-[24px] border p-3 text-left ${(theme.skin ?? "glass") === skin.id ? "border-violet-300 bg-violet-400/10 ring-2 ring-violet-400/40" : "border-white/10 bg-white/[0.03]"}`}>
+                  <div className="flex h-28 items-center justify-center rounded-[18px] bg-gradient-to-br from-violet-500/30 via-zinc-800 to-fuchsia-500/20"><div className={`w-3/4 rounded-2xl p-4 ${skin.effect}`} style={{ backgroundColor: skin.id === "soft" ? theme.cardAlt : skin.id === "flat" ? "transparent" : undefined }}><div className="mb-3 h-2 w-3/4 rounded-full bg-white/80" /><div className="h-2 w-1/2 rounded-full bg-white/35" /><div className="mt-4 h-6 rounded-lg bg-white/20" /></div></div>
+                  <span className="mt-3 block font-semibold">{skin.title}</span><span className="mt-1 block text-xs text-zinc-400">{skin.detail}</span>
+                </button>
+              ))}
+            </div>
+          </section>
 
-          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${mobileInspectorTab === "page" ? "block" : "hidden lg:block"}`}>
+          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${activeTool === "stickers" ? "block" : "hidden"}`}>
+            <h2 className="text-base font-semibold">Stickers and emoji</h2>
+            <p className="mb-3 mt-1 text-xs text-zinc-400">Add an item, then drag it over the cover or bio preview. Select one to resize or rotate it.</p>
+            <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+              {(Object.keys(stickerCategories) as Array<keyof typeof stickerCategories>).map((category) => (
+                <button key={category} onClick={() => setStickerCategory(category)} aria-pressed={stickerCategory === category} className={`min-h-11 shrink-0 rounded-full border px-4 text-sm ${stickerCategory === category ? "border-violet-300 bg-violet-400/15 text-violet-100" : "border-white/10 text-zinc-300"}`}>
+                  {category}
+                </button>
+              ))}
+            </div>
+            <div className="mb-4 grid grid-cols-4 gap-2 sm:grid-cols-5">
+              {STICKERS.filter((sticker) => stickerCategories[stickerCategory].some((id) => id === sticker.id)).map((sticker) => (
+                <button key={sticker.id} onClick={() => addSticker("svg", sticker.id)} aria-label={`Add ${sticker.label} sticker`} className="flex min-h-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] p-2 transition hover:border-violet-300/50 hover:bg-violet-400/10">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={sticker.src} alt="" loading="lazy" className="h-10 w-10" />
+                </button>
+              ))}
+            </div>
+            <div className="mb-4 overflow-hidden rounded-2xl border border-white/10">
+              <EmojiPicker
+                onEmojiClick={(emojiData: EmojiClickData) => addSticker("emoji", emojiData.emoji)}
+                theme={EmojiTheme.DARK}
+                width="100%"
+                height={300}
+                searchPlaceHolder="Find an emoji"
+                previewConfig={{ showPreview: false }}
+                lazyLoadEmojis
+              />
+            </div>
+            {selectedStickerId ? (() => {
+              const sticker = (theme.stickers ?? []).find((item) => item.id === selectedStickerId);
+              if (!sticker) return null;
+              return (
+                <div className="space-y-4 rounded-2xl border border-violet-300/20 bg-violet-400/[0.06] p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">Selected sticker</p>
+                    <button onClick={removeSelectedSticker} className="min-h-11 rounded-xl border border-red-300/20 px-4 text-sm text-red-200 hover:bg-red-400/10">Remove</button>
+                  </div>
+                  <RangeControl label="Size" value={sticker.size} min={5} max={40} onChange={(size) => updateSticker(sticker.id, { size })} />
+                  <RangeControl label="Rotation" value={sticker.rotation} min={-180} max={180} onChange={(rotation) => updateSticker(sticker.id, { rotation })} />
+                </div>
+              );
+            })() : (
+              <p className="rounded-xl border border-dashed border-white/10 p-3 text-center text-xs text-zinc-500">Choose an emoji or sticker to place it on your profile.</p>
+            )}
+            <p className="mt-3 text-right text-xs text-zinc-500">{(theme.stickers ?? []).length}/30 stickers</p>
+          </section>
+
+          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${activeTool === "fonts" ? "block" : "hidden"}`}>
+            <h2 className="text-base font-semibold">Typography</h2><p className="mb-3 mt-1 text-xs text-zinc-400">Choose a font pairing and see it in the preview.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["Inter", "Inter", "sans-serif"], ["Editorial", "Georgia, serif", "Georgia, serif"], ["Classic", "Arial, sans-serif", "Arial, sans-serif"], ["Mono", "monospace", "monospace"],
+              ] as const).map(([label, value, family]) => (
+                <button key={label} onClick={() => setTheme((current) => ({ ...current, fontHeading: value, fontBody: label === "Editorial" ? "Inter" : value }))} aria-pressed={theme.fontHeading === value} className={`min-h-24 rounded-2xl border p-3 text-left ${theme.fontHeading === value ? "border-violet-300 bg-violet-400/10 ring-2 ring-violet-400/30" : "border-white/10 bg-white/[0.03]"}`}><span className="text-xl" style={{ fontFamily: family }}>Ag</span><span className="mt-1 block text-sm font-semibold">{label}</span></button>
+              ))}
+            </div>
+            <label className="mt-3 block"><span className={smallLabel}>Body font</span><select value={theme.fontBody} onChange={(event) => setTheme((current) => ({ ...current, fontBody: event.target.value }))} className={`${fieldClass} min-h-12`}><option value="Inter">Inter</option><option value="Georgia, serif">Georgia</option><option value="Arial, sans-serif">Arial</option><option value="Trebuchet MS, sans-serif">Trebuchet</option><option value="monospace">Monospace</option></select></label>
+          </section>
+
+          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${activeTool === "colors" ? "block" : "hidden"}`}>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Page design</h2>
-              <select value={identity.template} onChange={(event) => applyTemplate(event.target.value as TemplateId)} className="max-w-28 rounded-md border border-white/10 bg-zinc-950 px-2 py-1.5 text-xs">
-                {Object.values(templateCatalog).map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-              </select>
+              <h2 className="text-base font-semibold">Color palette</h2>
             </div>
             <div className="space-y-2">
               {themeColor("page", "Page color")}
@@ -465,12 +709,6 @@ export default function ProfileStudio({
               <span className={smallLabel}>Page background</span>
               <select value={theme.backgroundType} onChange={(event) => setTheme((current) => ({ ...current, backgroundType: event.target.value as ProfileTheme["backgroundType"] }))} className={fieldClass}>
                 <option value="solid">Solid color</option><option value="gradient">Template background</option>
-              </select>
-            </label>
-            <label className="mt-3 block">
-              <span className={smallLabel}>Heading font</span>
-              <select value={theme.fontHeading} onChange={(event) => setTheme((current) => ({ ...current, fontHeading: event.target.value }))} className={fieldClass}>
-                <option value="Georgia, serif">Georgia</option><option value="Inter">Inter</option><option value="Arial, sans-serif">Arial</option><option value="Trebuchet MS, sans-serif">Trebuchet</option><option value="monospace">Monospace</option>
               </select>
             </label>
             <label className="mt-3 block">
@@ -486,12 +724,42 @@ export default function ProfileStudio({
             </div>
           </section>
 
-          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${mobileInspectorTab === "section" ? "block" : "hidden lg:block"}`}>
+          <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${activeTool === "layout" ? "block" : "hidden"}`}>
+            <h2 className="text-base font-semibold">Arrange your profile</h2>
+            <p className="mb-3 mt-1 text-xs text-zinc-400">Choose a starting arrangement, add sections, then select a section to edit it.</p>
+            <div className="mb-4 grid gap-2 sm:grid-cols-3">
+              {([
+                ["canvas", "Free canvas", "Keep current positions"],
+                ["stacked", "Clean stack", "A full-width reading flow"],
+                ["showcase", "Media first", "Lead with a larger gallery"],
+              ] as const).map(([id, label, detail]) => (
+                <button key={id} onClick={() => applyLayout(id)} aria-pressed={(theme.layout ?? "canvas") === id} className={`min-h-24 rounded-2xl border p-3 text-left ${theme.layout === id ? "border-violet-300 bg-violet-400/10 ring-2 ring-violet-400/30" : "border-white/10 bg-white/[0.03]"}`}>
+                  <span className="text-sm font-semibold">{label}</span><span className="mt-1 block text-xs text-zinc-400">{detail}</span>
+                </button>
+              ))}
+            </div>
+            <label className="mb-4 block"><span className={smallLabel}>Profile visibility</span><select value={identity.visibility} onChange={(event) => setIdentity((current) => ({ ...current, visibility: event.target.value as typeof current.visibility }))} className={`${fieldClass} min-h-12`}><option value="public">Public</option><option value="followers">Followers</option><option value="private">Private</option></select></label>
+            <div className="mb-4">
+              <p className={smallLabel}>Add a section</p>
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                {([[ "text", "Text" ], [ "quote", "Quote" ], [ "links", "Buttons" ], [ "gallery", "Gallery" ], [ "divider", "Divider" ], [ "spacer", "Spacer" ]] as Array<[BlockType, string]>).map(([type, label]) => <button key={type} onClick={() => addBlock(type)} className="min-h-12 shrink-0 rounded-xl border border-white/10 px-4 text-sm text-zinc-200">+ {label}</button>)}
+              </div>
+            </div>
+            <div className="mb-4">
+              <p className={smallLabel}>Profile images</p>
+              <div className="grid grid-cols-2 gap-2">{uploadControl("avatar")}{uploadControl("banner")}</div>
+            </div>
+            <div className="mb-4 border-t border-white/10 pt-4">
+              <p className={smallLabel}>Sections</p>
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                {blocks.map((block) => <button key={block.id} onClick={() => setSelectedId(block.id)} aria-pressed={selectedId === block.id} className={`min-h-11 shrink-0 rounded-xl border px-3 text-sm capitalize ${selectedId === block.id ? "border-violet-300 bg-violet-400/15 text-white" : "border-white/10 text-zinc-300"}`}>{block.type}</button>)}
+              </div>
+            </div>
             {selectedBlock ? (
               <>
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <h2 className="text-sm font-semibold capitalize">{selectedBlock.type} settings</h2>
-                  <button onClick={removeSelected} className="text-xs text-red-300 hover:text-red-200">{selectedBlock.locked ? "🔒 Locked" : "Remove"}</button>
+                  <button onClick={removeSelected} disabled={selectedBlock.locked} className="min-h-10 rounded-xl px-3 text-sm text-red-300 disabled:text-zinc-500">{selectedBlock.locked ? "Locked" : "Remove"}</button>
                 </div>
 
                 {selectedBlock.type === "header" ? (
@@ -507,7 +775,15 @@ export default function ProfileStudio({
                 ) : null}
 
                 {selectedBlock.type === "about" ? (
-                  <label className="mb-3 block"><span className={smallLabel}>About text</span><textarea rows={5} maxLength={400} value={identity.bio} onChange={(event) => setIdentity((current) => ({ ...current, bio: event.target.value }))} className={`${fieldClass} resize-y`} /></label>
+                  <div className="mb-3">
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <label htmlFor="profile-bio" className="text-xs font-medium text-zinc-400">About text</label>
+                      <button type="button" onClick={() => void generateBio()} disabled={generatingBio} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-violet-300/20 bg-violet-400/10 px-3 text-xs font-semibold text-violet-200 hover:bg-violet-400/20 disabled:opacity-50">
+                        <Sparkles className="h-4 w-4" />{generatingBio ? "Generating..." : "Generate bio"}
+                      </button>
+                    </div>
+                    <textarea id="profile-bio" rows={5} maxLength={400} value={identity.bio} onChange={(event) => setIdentity((current) => ({ ...current, bio: event.target.value }))} className={`${fieldClass} resize-y`} />
+                  </div>
                 ) : null}
 
                 {["about", "text", "quote", "links", "gallery", "posts"].includes(selectedBlock.type) ? (
@@ -547,7 +823,7 @@ export default function ProfileStudio({
                         {photos.map((url, index) => (
                           <div key={`${url}-${index}`} className="relative aspect-square overflow-hidden rounded-md bg-zinc-800">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={url} alt="" className="h-full w-full object-cover" />
+                            <img src={url} alt="" loading="lazy" className="h-full w-full object-cover" />
                             <button aria-label="Remove photo" onClick={() => setConfig(selectedBlock.id, "images", photos.filter((_item, itemIndex) => itemIndex !== index))} className="absolute right-0.5 top-0.5 rounded-full bg-black/70 px-1.5 text-xs text-white">×</button>
                           </div>
                         ))}
@@ -595,6 +871,7 @@ export default function ProfileStudio({
               </div>
             )}
           </section>
+          </div>
         </aside>
       </div>
     </main>
