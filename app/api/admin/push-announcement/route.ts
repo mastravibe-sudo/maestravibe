@@ -1,7 +1,7 @@
-import webpush from "web-push";
 import { createClient } from "@/lib/supabase/server";
+import { sendPushNotifications } from "@/lib/notifications/push";
 
-type SubscriptionRow = { endpoint: string; p256dh: string; auth: string };
+export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -46,32 +46,16 @@ export async function POST(request: Request) {
     .select("endpoint,p256dh,auth");
   if (subscriptionsError) return Response.json({ error: subscriptionsError.message }, { status: 500 });
 
-  webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
-  const notification = JSON.stringify({
+  const notification = {
     title: announcement.title,
     body: announcement.body.slice(0, 180),
     url: `/notifications?announcement=${announcement.id}`,
     tag: `announcement-${announcement.id}`,
-  });
-  const results = await Promise.allSettled(((subscriptions ?? []) as SubscriptionRow[]).map((subscription) =>
-    webpush.sendNotification(
-      { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
-      notification,
-      { TTL: 300 }
-    )
-  ));
-
-  const expiredEndpoints = results.flatMap((result, index) => {
-    if (result.status === "rejected" && [404, 410].includes(Number(result.reason?.statusCode))) {
-      return [(subscriptions ?? [])[index].endpoint];
-    }
-    return [];
-  });
-
-  if (expiredEndpoints.length) {
-    await supabase.from("push_subscriptions").delete().in("endpoint", expiredEndpoints);
+  };
+  try {
+    const result = await sendPushNotifications(supabase, subscriptions ?? [], notification);
+    return Response.json(result);
+  } catch {
+    return Response.json({ error: "Push announcement delivery failed." }, { status: 500 });
   }
-
-  const sent = results.filter((result) => result.status === "fulfilled").length;
-  return Response.json({ sent, failed: results.length - sent, total: results.length });
 }
