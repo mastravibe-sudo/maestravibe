@@ -1,26 +1,28 @@
 // path: maestra-vibe/components/MaestraMarket.tsx  (NEW file)
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, Heart, Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-type Product = { id: string; title: string; price: number; currency: string; image: string | null; url: string; category: string };
+type Product = { id: string; title: string; price: number; currency: string; image_url: string | null; url: string; in_stock: boolean };
 type Item = { product_id: string; kind: "saved" | "cart"; title: string; price: number; currency: string; image: string | null; url: string | null; qty: number };
+type ProductPage = { items?: Product[]; next_cursor?: string | null; base?: string; error?: string };
 const BRAND = "bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500";
 const money = (n: number, c: string) => `${c === "USD" ? "$" : c + " "}${n.toFixed(2)}`;
 
 export default function MaestraMarket() {
   const [supabase] = useState(() => createClient());
   const [products, setProducts] = useState<Product[]>([]);
-  const [base, setBase] = useState("https://maestra-market.vercel.app");
+  const [base, setBase] = useState("");
   const [apiError, setApiError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [tab, setTab] = useState<"shop" | "saved" | "cart">("shop");
-  const [cat, setCat] = useState("All");
   const [error, setError] = useState("");
 
   const loadItems = useCallback(async (uid: string) => {
@@ -29,19 +31,43 @@ export default function MaestraMarket() {
     else setItems((data ?? []) as Item[]);
   }, [supabase]);
 
+  const loadProducts = useCallback(async (cursor?: string) => {
+    if (cursor) setLoadingMore(true);
+    else setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (cursor) params.set("cursor", cursor);
+      const response = await fetch(`/api/market/products${params.size ? `?${params}` : ""}`);
+      const page = await response.json() as ProductPage;
+      setBase(page.base ?? "");
+      if (!response.ok) throw new Error(page.error || "Maestra Market products are temporarily unavailable.");
+      const items = Array.isArray(page.items) ? page.items : [];
+      setProducts((current) => cursor
+        ? [...current, ...items.filter((item) => !current.some((existing) => existing.id === item.id))]
+        : items);
+      setNextCursor(typeof page.next_cursor === "string" ? page.next_cursor : null);
+      setApiError(page.error ?? "");
+    } catch (loadError) {
+      setApiError(loadError instanceof Error ? loadError.message : "Maestra Market products are temporarily unavailable.");
+      if (!cursor) {
+        setProducts([]);
+        setNextCursor(null);
+      }
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, []);
+
   useEffect(() => {
     void (async () => {
-      const res = await fetch("/api/market/products");
-      const json = (await res.json()) as { products: Product[]; base: string; error?: string };
-      setProducts(json.products); setBase(json.base); setApiError(json.error ?? ""); setLoading(false);
+      await loadProducts();
       const { data: { user } } = await supabase.auth.getUser();
       setMe(user?.id ?? null);
       if (user) await loadItems(user.id);
     })();
-  }, [supabase, loadItems]);
+  }, [supabase, loadItems, loadProducts]);
 
-  const cats = useMemo(() => ["All", ...Array.from(new Set(products.map((p) => p.category).filter(Boolean)))], [products]);
-  const shown = products.filter((p) => cat === "All" || p.category === cat);
   const has = (id: string, kind: Item["kind"]) => items.find((i) => i.product_id === id && i.kind === kind);
 
   const toggle = async (p: Product, kind: Item["kind"]) => {
@@ -49,7 +75,7 @@ export default function MaestraMarket() {
     const existing = has(p.id, kind);
     const { error: err } = existing
       ? await supabase.from("market_items").delete().eq("user_id", me).eq("product_id", p.id).eq("kind", kind)
-      : await supabase.from("market_items").insert({ user_id: me, product_id: p.id, kind, title: p.title, price: p.price, currency: p.currency, image: p.image, url: p.url, qty: 1 });
+      : await supabase.from("market_items").insert({ user_id: me, product_id: p.id, kind, title: p.title, price: p.price, currency: p.currency, image: p.image_url, url: p.url, qty: 1 });
     if (err) setError(err.message);
     await loadItems(me);
   };
@@ -78,34 +104,40 @@ export default function MaestraMarket() {
 
       {tab === "shop" ? (
         <>
-          <div className="mb-4 flex gap-2 overflow-x-auto pb-1">{cats.map((c) => <button key={c} onClick={() => setCat(c)} className={`h-10 shrink-0 rounded-full border px-4 text-sm ${cat === c ? "border-transparent bg-[#f4f2ff] text-[#09061a]" : "border-white/20 text-[#c9c4e8]"}`}>{c}</button>)}</div>
-          {loading ? <p className="py-12 text-center text-[#a8a2c9]">Loading products...</p> : shown.length === 0 ? (
+          {loading ? <p className="py-12 text-center text-[#a8a2c9]">Loading products...</p> : products.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/20 p-8 text-center">
               <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-[#a8a2c9]" aria-hidden="true" />
               <p className="font-medium">{apiError || "No products found."}</p>
-              <a href={base} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-violet-300">Visit Maestra Market <ExternalLink className="h-4 w-4" /></a>
+              {base ? <a href={base} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-violet-300">Visit Maestra Market <ExternalLink className="h-4 w-4" /></a> : null}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-              {shown.map((p) => (
+              {products.map((p) => (
                 <article key={p.id} className="overflow-hidden rounded-2xl border border-white/10 bg-[#141028] shadow-sm">
                   <div className="relative aspect-square bg-[#1d1840]">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {p.image ? <img src={p.image} alt={p.title} loading="lazy" className="h-full w-full object-cover" /> : null}
+                    {p.image_url ? <img src={p.image_url} alt={p.title} loading="lazy" className="h-full w-full object-cover" /> : null}
                     <button onClick={() => void toggle(p, "saved")} aria-label={has(p.id, "saved") ? "Remove from saved" : "Save"} className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-[#09061a]/80 text-pink-500 shadow"><Heart className={`h-5 w-5 ${has(p.id, "saved") ? "fill-current" : ""}`} /></button>
                   </div>
                   <div className="space-y-2 p-3">
                     <h2 className="line-clamp-2 min-h-10 text-sm font-medium">{p.title}</h2>
                     <p className="text-lg font-bold">{money(p.price, p.currency)}</p>
+                    {!p.in_stock ? <p className="text-xs font-medium text-amber-300">Out of stock</p> : null}
                     <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => void toggle(p, "cart")} className={`${btn} ${has(p.id, "cart") ? "bg-[#1d1840] text-[#e4e0ff]" : `${BRAND} text-white`}`}><ShoppingCart className="h-4 w-4" aria-hidden="true" />{has(p.id, "cart") ? "In cart" : "Add"}</button>
-                      <button onClick={() => open(p.url)} className={`${btn} border border-white/20 text-[#e4e0ff]`}>Buy</button>
+                      <button onClick={() => void toggle(p, "cart")} disabled={!p.in_stock} className={`${btn} ${has(p.id, "cart") ? "bg-[#1d1840] text-[#e4e0ff]" : `${BRAND} text-white`} disabled:cursor-not-allowed disabled:opacity-45`}><ShoppingCart className="h-4 w-4" aria-hidden="true" />{!p.in_stock ? "Unavailable" : has(p.id, "cart") ? "In cart" : "Add"}</button>
+                      <a href={p.url} target="_blank" rel="noopener noreferrer" className={`${btn} border border-white/20 text-[#e4e0ff]`}>Buy</a>
                     </div>
                   </div>
                 </article>
               ))}
             </div>
           )}
+          {!loading && products.length > 0 && apiError ? <p role="alert" className="mt-4 rounded-lg bg-red-500/15 p-3 text-sm text-red-300">{apiError}</p> : null}
+          {!loading && nextCursor ? (
+            <button type="button" onClick={() => void loadProducts(nextCursor)} disabled={loadingMore} className={`${BRAND} mx-auto mt-5 flex min-h-11 items-center justify-center rounded-xl px-6 text-sm font-semibold text-white disabled:opacity-50`}>
+              {loadingMore ? "Loading..." : "Load more"}
+            </button>
+          ) : null}
         </>
       ) : null}
 

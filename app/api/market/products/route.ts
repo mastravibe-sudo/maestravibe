@@ -1,36 +1,139 @@
-// path: maestra-vibe/app/api/market/products/route.ts  (NEW file, app/api/market/products folder banao)
-// Maestra Market se products la kar saaf (sanitize) karke Maestra Vibe ko deta hai.
 import { NextResponse } from "next/server";
 
-const BASE = (process.env.MAESTRA_MARKET_URL ?? "https://maestra-market.vercel.app").replace(/\/$/, "");
-export const revalidate = 300;
+export const revalidate = 60;
 
-type Product = { id: string; title: string; price: number; currency: string; image: string | null; url: string; category: string };
+const PAGE_SIZE = 24;
+const MAX_CURSOR_LENGTH = 2_048;
 
-function clean(raw: unknown): Product | null {
-  if (!raw || typeof raw !== "object") return null;
-  const p = raw as Record<string, unknown>;
-  const id = String(p.id ?? "").slice(0, 80);
-  const title = String(p.title ?? "").slice(0, 160);
-  const price = Number(p.price);
-  if (!id || !title || !Number.isFinite(price) || price < 0) return null;
-  const image = typeof p.image === "string" && /^https:\/\//i.test(p.image) ? p.image : null;
-  let url = BASE;
+type MarketProduct = {
+  id: string;
+  title: string;
+  price: number;
+  currency: string;
+  image_url: string | null;
+  url: string;
+  in_stock: boolean;
+};
+
+function readProduct(value: unknown, marketOrigin: string): MarketProduct | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const product = value as Record<string, unknown>;
+  if (
+    (typeof product.id !== "string" && typeof product.id !== "number") ||
+    typeof product.title !== "string" ||
+    typeof product.price !== "number" ||
+    !Number.isFinite(product.price) ||
+    product.price < 0 ||
+    typeof product.currency !== "string" ||
+    !product.currency.trim() ||
+    typeof product.in_stock !== "boolean" ||
+    (product.image_url !== null && typeof product.image_url !== "string") ||
+    typeof product.url !== "string"
+  ) return null;
+
+  const id = String(product.id).trim();
+  const title = product.title.trim();
+  if (!id || id.length > 80 || !title || title.length > 160) return null;
+
+  let url: URL;
   try {
-    const u = new URL(String(p.url ?? ""), BASE);
-    if (u.origin === new URL(BASE).origin) url = u.toString(); // sirf Maestra Market ke apne links
-  } catch { /* default link */ }
-  return { id, title, price, currency: String(p.currency ?? "USD").slice(0, 8), image, url, category: String(p.category ?? "").slice(0, 40) };
+    url = new URL(product.url, marketOrigin);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.origin !== marketOrigin) return null;
+
+  let imageUrl: string | null = null;
+  if (typeof product.image_url === "string" && product.image_url.trim()) {
+    try {
+      const image = new URL(product.image_url);
+      if (image.protocol === "https:") imageUrl = image.toString();
+    } catch {
+      imageUrl = null;
+    }
+  }
+
+  return {
+    id,
+    title,
+    price: product.price,
+    currency: product.currency.trim().slice(0, 8),
+    image_url: imageUrl,
+    url: url.toString(),
+    in_stock: product.in_stock,
+  };
 }
 
-export async function GET() {
+function errorResponse(message: string, status = 502, base?: string) {
+  return NextResponse.json(
+    { items: [], next_cursor: null, ...(base ? { base } : {}), error: message },
+    { status },
+  );
+}
+
+export async function GET(request: Request) {
+  const baseUrl = process.env.MARKET_BASE_URL;
+  const apiKey = process.env.MARKET_API_KEY;
+  if (!baseUrl || !apiKey) {
+    return errorResponse("Maestra Market is not configured yet.", 503);
+  }
+
+  let marketBase: URL;
   try {
-    const res = await fetch(`${BASE}/api/public/products?limit=60`, { next: { revalidate: 300 } });
-    if (!res.ok) throw new Error(`Market responded ${res.status}`);
-    const json = (await res.json()) as { products?: unknown[] };
-    const products = (json.products ?? []).map(clean).filter((p): p is Product => p !== null);
-    return NextResponse.json({ products, base: BASE });
+    marketBase = new URL(baseUrl);
   } catch {
-    return NextResponse.json({ products: [], base: BASE, error: "Maestra Market products are not connected yet." });
+    return errorResponse("Maestra Market is not configured correctly.", 503);
+  }
+  if (marketBase.protocol !== "https:") {
+    return errorResponse("Maestra Market is not configured correctly.", 503);
+  }
+  const base = marketBase.origin;
+
+  const cursor = new URL(request.url).searchParams.get("cursor");
+  if (cursor && cursor.length > MAX_CURSOR_LENGTH) {
+    return errorResponse("Invalid product page cursor.", 400, base);
+  }
+
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+  if (cursor) params.set("cursor", cursor);
+
+  try {
+    const upstream = await fetch(`${base}/api/public/products?${params}`, {
+      headers: { "x-api-key": apiKey },
+      next: { revalidate },
+    });
+    if (!upstream.ok) {
+      return errorResponse("Maestra Market products are temporarily unavailable.", 502, base);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await upstream.json();
+    } catch {
+      return errorResponse("Maestra Market returned an invalid product response.", 502, base);
+    }
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return errorResponse("Maestra Market returned an invalid product response.", 502, base);
+    }
+    const response = payload as Record<string, unknown>;
+    if (
+      !Array.isArray(response.items) ||
+      (response.next_cursor !== null && typeof response.next_cursor !== "string") ||
+      (typeof response.next_cursor === "string" && response.next_cursor.length > MAX_CURSOR_LENGTH)
+    ) {
+      return errorResponse("Maestra Market returned an invalid product response.", 502, base);
+    }
+
+    const items = response.items
+      .map((item) => readProduct(item, base))
+      .filter((item): item is MarketProduct => item !== null);
+    return NextResponse.json({
+      items,
+      next_cursor: response.next_cursor,
+      base,
+      ...(items.length === 0 ? { empty_message: "No products are available right now." } : {}),
+    });
+  } catch {
+    return errorResponse("Maestra Market products are temporarily unavailable.", 502, base);
   }
 }
