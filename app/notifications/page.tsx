@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import PushSubscriptionControl from "@/components/PushSubscriptionControl";
 
-type Notification = { id: string; type: "follow" | "vibe" | "comment"; actor_id: string | null; post_id: string | null; created_at: string; read_at: string | null };
+type Notification = { id: string; type: "follow" | "vibe" | "comment" | "profile_view" | "message"; actor_id: string | null; post_id: string | null; created_at: string; read_at: string | null };
 type Person = { id: string; username: string; name: string | null; avatar_url: string | null };
 type Announcement = { id: string; title: string; body: string; published_at: string };
 
@@ -87,7 +87,9 @@ export default function NotificationsPage() {
   const notificationText = (item: Notification) => {
     if (item.type === "follow") return "started following you";
     if (item.type === "vibe") return "reacted to your post";
-    return "commented on your post";
+    if (item.type === "comment") return "commented on your post";
+    if (item.type === "message") return "sent you a message";
+    return "viewed your profile";
   };
 
   return (
@@ -128,13 +130,15 @@ export default function NotificationsPage() {
                   const actor = item.actor_id ? people[item.actor_id] : undefined;
                   return (
                     <article key={item.id} className={`flex items-start gap-3 py-4 ${item.read_at ? "" : "bg-violet-500/4"}`}>
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-lg">{item.type === "follow" ? "👤" : item.type === "vibe" ? "🔥" : "💬"}</span>
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-lg">{item.type === "follow" ? "👤" : item.type === "vibe" ? "🔥" : item.type === "comment" ? "💬" : item.type === "message" ? "✉️" : "👀"}</span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm text-zinc-200"><span className="font-semibold text-white">{actor ? actor.name || `@${actor.username}` : "Someone"}</span> {notificationText(item)}.</p>
                         <p className="mt-1 text-xs text-zinc-500">{timeLabel(item.created_at)}</p>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-2">
                         {actor ? <Link href={`/${actor.username}`} className="text-xs text-violet-300 hover:text-violet-200">View profile</Link> : null}
+                        {item.type === "message" ? <Link href="/inbox" className="text-xs text-violet-300 hover:text-violet-200">Open inbox</Link> : null}
+                        {item.post_id ? <Link href={`/?post=${item.post_id}`} className="text-xs text-violet-300 hover:text-violet-200">View post</Link> : null}
                         {!item.read_at ? <button onClick={() => void markRead(item)} className="text-[11px] text-zinc-500 hover:text-white">Mark read</button> : null}
                       </div>
                     </article>
@@ -144,7 +148,7 @@ export default function NotificationsPage() {
             </section>
           ) : null}
 
-          {!announcements.length && !items.length && !error ? <p className="py-16 text-center text-sm text-zinc-500">You’re all caught up. New follows, post activity, and app updates will show here.</p> : null}
+          {!announcements.length && !items.length && !error ? <p className="py-16 text-center text-sm text-zinc-500">You’re all caught up. New follows, messages, post activity, and app updates will show here.</p> : null}
         </div>
       ) : null}
     </main>
