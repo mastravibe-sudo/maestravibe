@@ -1,16 +1,23 @@
 // path: maestra-vibe/components/MaestraMarket.tsx  (NEW file)
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Heart, Minus, Plus, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Heart, Minus, Plus, Search, ShoppingBag, ShoppingCart, Trash2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-type Product = { id: string; title: string; price: number; currency: string; image_url: string | null; url: string; in_stock: boolean };
+type Product = { id: string; title: string; price: number; currency: string; image_url: string | null; images?: string[]; url: string; in_stock: boolean };
 type Item = { product_id: string; kind: "saved" | "cart"; title: string; price: number; currency: string; image: string | null; url: string | null; qty: number };
 type ProductPage = { items?: Product[]; next_cursor?: string | null; base?: string; error?: string };
+type ProductSort = "newest" | "price-low" | "price-high";
+type PriceRange = "all" | "under-1000" | "1000-5000" | "5000-plus";
 const BRAND = "bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500";
 const money = (n: number, c: string) => `${c === "USD" ? "$" : c + " "}${n.toFixed(2)}`;
+const detailMoney = (n: number) => `PKR ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const productImages = (product: Product) => {
+  const images = product.images?.filter((image) => typeof image === "string" && image.length > 0) ?? [];
+  return images.length ? images : product.image_url ? [product.image_url] : [];
+};
 
 export default function MaestraMarket() {
   const [supabase] = useState(() => createClient());
@@ -24,6 +31,12 @@ export default function MaestraMarket() {
   const [items, setItems] = useState<Item[]>([]);
   const [tab, setTab] = useState<"shop" | "saved" | "cart">("shop");
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<ProductSort>("newest");
+  const [priceRange, setPriceRange] = useState<PriceRange>("all");
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   const loadItems = useCallback(async (uid: string) => {
     const { data, error: err } = await supabase.from("market_items").select("product_id,kind,title,price,currency,image,url,qty").eq("user_id", uid);
@@ -69,6 +82,48 @@ export default function MaestraMarket() {
   }, [supabase, loadItems, loadProducts]);
 
   const has = (id: string, kind: Item["kind"]) => items.find((i) => i.product_id === id && i.kind === kind);
+  const visibleProducts = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    const filtered = products.filter((product) => {
+      if (query && !product.title.toLocaleLowerCase().includes(query)) return false;
+      if (priceRange === "under-1000" && product.price >= 1000) return false;
+      if (priceRange === "1000-5000" && (product.price < 1000 || product.price >= 5000)) return false;
+      if (priceRange === "5000-plus" && product.price < 5000) return false;
+      return true;
+    });
+    if (sort === "price-low") return filtered.sort((a, b) => a.price - b.price);
+    if (sort === "price-high") return filtered.sort((a, b) => b.price - a.price);
+    return filtered;
+  }, [products, priceRange, search, sort]);
+
+  const clearFilters = () => {
+    setSearch("");
+    setSort("newest");
+    setPriceRange("all");
+  };
+  const openDetails = (product: Product) => {
+    setSelectedProduct(product);
+    setGalleryIndex(0);
+  };
+  const closeDetails = () => {
+    setSelectedProduct(null);
+    touchStart.current = null;
+  };
+  const handleGalleryTouchEnd = (event: React.TouchEvent<HTMLElement>) => {
+    const start = touchStart.current;
+    touchStart.current = null;
+    if (!start) return;
+    const deltaX = event.changedTouches[0].clientX - start.x;
+    const deltaY = event.changedTouches[0].clientY - start.y;
+    if (deltaY > 75 && Math.abs(deltaY) > Math.abs(deltaX)) {
+      closeDetails();
+      return;
+    }
+    const imageCount = selectedProduct ? productImages(selectedProduct).length : 0;
+    if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY) && imageCount > 1) {
+      setGalleryIndex((current) => (current + (deltaX < 0 ? 1 : -1) + imageCount) % imageCount);
+    }
+  };
 
   const toggle = async (p: Product, kind: Item["kind"]) => {
     if (!me) return setError("Log in to save products or use the cart.");
@@ -104,23 +159,58 @@ export default function MaestraMarket() {
 
       {tab === "shop" ? (
         <>
+          <div className="mb-4 space-y-3">
+            <label className="relative block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#a8a2c9]" aria-hidden="true" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products" aria-label="Search products by title" className="h-11 w-full rounded-xl border border-white/10 bg-[#141028] pl-10 pr-3 text-sm text-white outline-none placeholder:text-[#817b9f] focus:border-violet-400" />
+            </label>
+            <label className="flex items-center gap-3 text-sm text-[#c9c4e8]">
+              <span className="shrink-0">Sort</span>
+              <select value={sort} onChange={(event) => setSort(event.target.value as ProductSort)} className="h-11 min-w-0 flex-1 rounded-xl border border-white/10 bg-[#141028] px-3 text-sm text-white outline-none focus:border-violet-400">
+                <option value="newest">Newest</option>
+                <option value="price-low">Price low to high</option>
+                <option value="price-high">Price high to low</option>
+              </select>
+            </label>
+            <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Filter by price">
+              {([
+                ["all", "Any price"],
+                ["under-1000", "Under 1000"],
+                ["1000-5000", "1000-5000"],
+                ["5000-plus", "5000+"],
+              ] as const).map(([value, label]) => (
+                <button key={value} type="button" onClick={() => setPriceRange(value)} aria-pressed={priceRange === value} className={`min-h-10 shrink-0 rounded-full border px-4 text-sm ${priceRange === value ? "border-transparent bg-[#f4f2ff] text-[#09061a]" : "border-white/20 text-[#c9c4e8]"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           {loading ? <p className="py-12 text-center text-[#a8a2c9]">Loading products...</p> : products.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/20 p-8 text-center">
               <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-[#a8a2c9]" aria-hidden="true" />
               <p className="font-medium">{apiError || "No products found."}</p>
               {base ? <a href={base} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-violet-300">Visit Maestra Market <ExternalLink className="h-4 w-4" /></a> : null}
             </div>
+          ) : visibleProducts.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-white/20 p-8 text-center">
+              <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-[#a8a2c9]" aria-hidden="true" />
+              <p className="font-medium">No products match those filters.</p>
+              <button type="button" onClick={clearFilters} className="mt-3 min-h-11 rounded-xl bg-white/10 px-4 text-sm font-semibold text-white hover:bg-white/15">Clear filters</button>
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-              {products.map((p) => (
+              {visibleProducts.map((p) => (
                 <article key={p.id} className="overflow-hidden rounded-2xl border border-white/10 bg-[#141028] shadow-sm">
                   <div className="relative aspect-square bg-[#1d1840]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {p.image_url ? <img src={p.image_url} alt={p.title} loading="lazy" className="h-full w-full object-cover" /> : null}
+                    <button type="button" onClick={() => openDetails(p)} aria-label={`View ${p.title}`} className="absolute inset-0 block h-full w-full text-left">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {p.image_url ? <img src={p.image_url} alt={p.title} loading="lazy" className="h-full w-full object-cover" /> : null}
+                      <span className="sr-only">View product details</span>
+                    </button>
                     <button onClick={() => void toggle(p, "saved")} aria-label={has(p.id, "saved") ? "Remove from saved" : "Save"} className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-[#09061a]/80 text-pink-500 shadow"><Heart className={`h-5 w-5 ${has(p.id, "saved") ? "fill-current" : ""}`} /></button>
                   </div>
                   <div className="space-y-2 p-3">
-                    <h2 className="line-clamp-2 min-h-10 text-sm font-medium">{p.title}</h2>
+                    <button type="button" onClick={() => openDetails(p)} className="line-clamp-2 min-h-10 w-full text-left text-sm font-medium">{p.title}</button>
                     <p className="text-lg font-bold">{money(p.price, p.currency)}</p>
                     {!p.in_stock ? <p className="text-xs font-medium text-amber-300">Out of stock</p> : null}
                     <div className="grid grid-cols-2 gap-2">
@@ -151,6 +241,44 @@ export default function MaestraMarket() {
           <p className="text-center text-xs text-[#a8a2c9]">Payment and delivery details are completed on Maestra Market.</p>
         </div>
       ) : <p className="py-12 text-center text-[#a8a2c9]">Your cart is empty.</p>) : null}
+
+      {selectedProduct ? (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-4" onClick={closeDetails}>
+          <section role="dialog" aria-modal="true" aria-label={`${selectedProduct.title} details`} onClick={(event) => event.stopPropagation()} onTouchStart={(event) => { touchStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY }; }} onTouchEnd={handleGalleryTouchEnd} className="relative max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-[28px] border border-white/10 bg-[#100c24] pb-[max(1rem,env(safe-area-inset-bottom))] text-white shadow-2xl sm:rounded-[28px]">
+            <div className="sticky top-0 z-10 flex items-center justify-between bg-[#100c24]/95 px-4 py-3 backdrop-blur">
+              <h2 className="line-clamp-1 pr-3 text-base font-semibold">{selectedProduct.title}</h2>
+              <button type="button" onClick={closeDetails} aria-label="Close product details" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/5 text-zinc-200"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="relative aspect-square max-h-[52dvh] w-full touch-pan-y overflow-hidden bg-[#1d1840]" onTouchStart={(event) => { touchStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY }; }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {productImages(selectedProduct).length ? <img src={productImages(selectedProduct)[galleryIndex]} alt={`${selectedProduct.title} image ${galleryIndex + 1}`} className="h-full w-full object-contain" /> : <div className="flex h-full items-center justify-center text-sm text-zinc-400">No product image</div>}
+              {productImages(selectedProduct).length > 1 ? (
+                <>
+                  <button type="button" aria-label="Previous image" onClick={() => setGalleryIndex((current) => (current - 1 + productImages(selectedProduct).length) % productImages(selectedProduct).length)} className="absolute left-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white"><ChevronLeft className="h-5 w-5" /></button>
+                  <button type="button" aria-label="Next image" onClick={() => setGalleryIndex((current) => (current + 1) % productImages(selectedProduct).length)} className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white"><ChevronRight className="h-5 w-5" /></button>
+                  <span className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs text-white">{galleryIndex + 1} / {productImages(selectedProduct).length}</span>
+                </>
+              ) : null}
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-2xl font-bold">{detailMoney(selectedProduct.price)}</p>
+                <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${selectedProduct.in_stock ? "bg-emerald-400/15 text-emerald-300" : "bg-amber-400/15 text-amber-200"}`}>{selectedProduct.in_stock ? "In stock" : "Out of stock"}</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <a href={selectedProduct.url} target="_blank" rel="noopener noreferrer" className={`${BRAND} flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white`}>
+                  Buy on Maestra Market <ExternalLink className="h-4 w-4" />
+                </a>
+                <button type="button" onClick={() => void toggle(selectedProduct, "saved")} className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 text-sm font-semibold text-white hover:bg-white/10">
+                  <Heart className={`h-4 w-4 ${has(selectedProduct.id, "saved") ? "fill-current text-pink-400" : ""}`} />
+                  {has(selectedProduct.id, "saved") ? "Saved" : "Add to saved"}
+                </button>
+              </div>
+              <p className="text-center text-xs text-zinc-500">Swipe down to close</p>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

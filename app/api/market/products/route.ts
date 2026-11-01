@@ -11,6 +11,7 @@ type MarketProduct = {
   price: number;
   currency: string;
   image_url: string | null;
+  images?: string[];
   url: string;
   in_stock: boolean;
 };
@@ -42,6 +43,9 @@ function readProduct(value: unknown, marketOrigin: string): MarketProduct | null
     return null;
   }
   if (url.protocol !== "https:") return null;
+  if (url.host !== new URL(marketOrigin).host) {
+    url = new URL(url.pathname, marketOrigin);
+  }
 
   let imageUrl: string | null = null;
   if (typeof product.image_url === "string" && product.image_url.trim()) {
@@ -53,12 +57,26 @@ function readProduct(value: unknown, marketOrigin: string): MarketProduct | null
     }
   }
 
+  const images = Array.isArray(product.images)
+    ? product.images.flatMap((value) => {
+        if (typeof value !== "string" || !value.trim()) return [];
+        try {
+          const image = new URL(value);
+          return image.protocol === "https:" ? [image.toString()] : [];
+        } catch {
+          return [];
+        }
+      })
+    : [];
+  if (!images.length && imageUrl) images.push(imageUrl);
+
   return {
     id,
     title,
     price: product.price,
     currency: product.currency.trim().slice(0, 8),
     image_url: imageUrl,
+    ...(images.length ? { images } : {}),
     url: url.toString(),
     in_stock: product.in_stock,
   };
