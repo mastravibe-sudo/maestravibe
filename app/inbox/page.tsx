@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ImagePlus, MessageCircle, MoreHorizontal, Send, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { compressImage } from "@/lib/media/compress";
+import { useCurrentUser } from "@/components/CurrentUserContext";
 
 type Person = { id: string; username: string; name: string | null; avatar_url: string | null };
 type InboxSummary = {
@@ -43,7 +44,8 @@ async function uploadChatImage(file: File) {
 
 export default function InboxPage() {
   const [supabase] = useState(() => createClient());
-  const [userId, setUserId] = useState<string | null>(null);
+  const currentUser = useCurrentUser();
+  const userId = currentUser.userId;
   const [summaries, setSummaries] = useState<InboxSummary[]>([]);
   const [people, setPeople] = useState<Record<string, Person>>({});
   const [messages, setMessages] = useState<Message[]>([]);
@@ -64,6 +66,7 @@ export default function InboxPage() {
     ? selectedSummary.participant_one === userId ? selectedSummary.participant_two : selectedSummary.participant_one
     : null;
   const otherPerson = otherId ? people[otherId] : null;
+  const inboxLoading = !currentUser.ready || (!!userId && loading);
 
   const loadSummaries = useCallback(async () => {
     if (!userId) return;
@@ -140,19 +143,6 @@ export default function InboxPage() {
       }
     }
   }, [loadSummaries, supabase, userId]);
-
-  useEffect(() => {
-    let active = true;
-    const loadUser = async () => {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (!active) return;
-      if (authError) setError(authError.message);
-      setUserId(user?.id ?? null);
-      if (!user) setLoading(false);
-    };
-    void loadUser();
-    return () => { active = false; };
-  }, [supabase]);
 
   useEffect(() => {
     if (!userId) return;
@@ -335,9 +325,9 @@ export default function InboxPage() {
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {!userId && !loading ? <Link href="/login" className="m-4 block rounded-2xl border border-white/10 bg-zinc-900 p-4 text-center text-sm text-zinc-300">Log in to open your inbox</Link> : null}
-          {loading ? <p className="p-6 text-center text-sm text-zinc-500">Loading conversations...</p> : null}
-          {userId && !loading && !summaries.length ? <div className="px-6 py-14 text-center"><MessageCircle className="mx-auto h-9 w-9 text-zinc-600" /><p className="mt-4 font-semibold text-zinc-300">Your inbox starts here</p><p className="mt-2 text-sm leading-relaxed text-zinc-500">Search for a username above to start a conversation.</p></div> : null}
+          {!userId && !inboxLoading ? <Link href="/login" className="m-4 block rounded-2xl border border-white/10 bg-zinc-900 p-4 text-center text-sm text-zinc-300">Log in to open your inbox</Link> : null}
+          {inboxLoading ? <p className="p-6 text-center text-sm text-zinc-500">Loading conversations...</p> : null}
+          {userId && !inboxLoading && !summaries.length ? <div className="px-6 py-14 text-center"><MessageCircle className="mx-auto h-9 w-9 text-zinc-600" /><p className="mt-4 font-semibold text-zinc-300">Your inbox starts here</p><p className="mt-2 text-sm leading-relaxed text-zinc-500">Search for a username above to start a conversation.</p></div> : null}
           {summaries.map((summary) => {
             const personId = summary.participant_one === userId ? summary.participant_two : summary.participant_one;
             const person = selectedPeople[personId];

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import PushSubscriptionControl from "@/components/PushSubscriptionControl";
+import { useCurrentUser } from "@/components/CurrentUserContext";
 
 type Notification = { id: string; type: "follow" | "vibe" | "comment" | "profile_view" | "message"; actor_id: string | null; post_id: string | null; created_at: string; read_at: string | null };
 type Person = { id: string; username: string; name: string | null; avatar_url: string | null };
@@ -13,7 +14,8 @@ const timeLabel = (value: string) => new Intl.DateTimeFormat(undefined, { dateSt
 
 export default function NotificationsPage() {
   const [supabase] = useState(() => createClient());
-  const [userId, setUserId] = useState<string | null>(null);
+  const currentUser = useCurrentUser();
+  const userId = currentUser.userId;
   const [items, setItems] = useState<Notification[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [people, setPeople] = useState<Record<string, Person>>({});
@@ -21,11 +23,10 @@ export default function NotificationsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!currentUser.ready) return;
     setLoading(true);
     setError(null);
-    const { data: { user } } = await supabase.auth.getUser();
-    setUserId(user?.id ?? null);
-    if (!user) {
+    if (!userId) {
       setItems([]);
       setAnnouncements([]);
       setLoading(false);
@@ -36,7 +37,7 @@ export default function NotificationsPage() {
       supabase
         .from("notifications")
         .select("id,type,actor_id,post_id,created_at,read_at")
-        .eq("recipient_id", user.id)
+        .eq("recipient_id", userId)
         .order("created_at", { ascending: false })
         .limit(60),
       supabase
@@ -61,7 +62,7 @@ export default function NotificationsPage() {
       else setPeople(Object.fromEntries(((actors ?? []) as Person[]).map((person) => [person.id, person])));
     } else setPeople({});
     setLoading(false);
-  }, [supabase]);
+  }, [currentUser.ready, currentUser.userId, supabase, userId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
