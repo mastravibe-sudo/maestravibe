@@ -2,13 +2,14 @@
 // Popup / viewer khulne par browser history mein ek step jorta hai, taake Back dabane par sirf wohi popup band ho.
 import { useEffect, useRef } from "react";
 
-export function useOverlayHistory(onClose: () => void) {
+export function useOverlayHistory(onClose: () => void, enabled = true) {
   const closeRef = useRef(onClose);
   useEffect(() => {
     closeRef.current = onClose;
   });
 
   useEffect(() => {
+    if (!enabled) return;
     let pushed = false;
     let popped = false;
     const marker = Date.now() + Math.random();
@@ -17,6 +18,7 @@ export function useOverlayHistory(onClose: () => void) {
       pushed = true;
     }, 0);
     const onPop = () => {
+      if ((window.history.state as { overlay?: number } | null)?.overlay === marker) return;
       popped = true;
       closeRef.current();
     };
@@ -27,5 +29,5 @@ export function useOverlayHistory(onClose: () => void) {
       // X button se band hua to apna joda hua step wapas hata do
       if (pushed && !popped && (window.history.state as { overlay?: number } | null)?.overlay === marker) window.history.back();
     };
-  }, []);
+  }, [enabled]);
 }

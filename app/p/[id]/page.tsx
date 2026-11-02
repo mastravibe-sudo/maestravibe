@@ -1,5 +1,6 @@
 // path: maestra-vibe/app/p/[id]/page.tsx  (NEW file, app ke andar p folder, phir [id] folder)
 // Har post ka apna public page: share links, Google aur WhatsApp preview ke liye.
+import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -13,14 +14,18 @@ type Post = {
   profiles: { username: string; name: string | null; avatar_url: string | null; visibility: string; discoverable: boolean };
 };
 
-async function getPost(id: string): Promise<Post | null> {
+const getPost = cache(async (id: string): Promise<Post | null> => {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  const { data } = await publicClient().from("posts")
+  const { data, error } = await publicClient().from("posts")
     .select("id,title,body,tags,location,media,image_url,created_at,profiles!posts_user_id_fkey(username,name,avatar_url,visibility,discoverable)")
     .eq("id", id).maybeSingle();
+  if (error) {
+    console.error("Could not load public post metadata.", error.message);
+    return null;
+  }
   const post = data as unknown as Post | null;
   return post && post.profiles.visibility === "public" ? post : null; // private profiles ke posts yahan nahi
-}
+});
 
 const heading = (p: Post) => p.title || p.body.slice(0, 70) || `Post by ${p.profiles.name || p.profiles.username}`;
 const firstMedia = (p: Post): Media | null => (p.media && p.media.length ? p.media[0] : p.image_url ? { type: "image", url: p.image_url } : null);

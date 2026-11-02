@@ -1,11 +1,12 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { Camera, ImagePlus } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { ProfileRecord } from "@/lib/profile-schema";
-import { STICKERS } from "@/lib/stickers";
+import { requestActivityPush } from "@/lib/notifications/client";
+import ProfileCanvas from "@/components/ProfileCanvas";
 import ProfilePostGrid from "@/components/ProfilePostGrid";
 
 export default function ProfileView({
@@ -19,6 +20,8 @@ export default function ProfileView({
   stats: { followers: number; following: number };
   isFollowing: boolean;
 }) {
+  const pagesRef = useRef<HTMLDivElement>(null);
+  const [activePage, setActivePage] = useState(0);
   const [isFollowing, setIsFollowing] = useState(initialFollowing);
   const [followerCount, setFollowerCount] = useState(stats.followers);
   const [followError, setFollowError] = useState<string | null>(null);
@@ -53,6 +56,15 @@ export default function ProfileView({
     if (error) return setFollowError(error.message);
     setIsFollowing(true);
     setFollowerCount((count) => count + 1);
+    const pushError = await requestActivityPush({ type: "follow", profileId: profile.id });
+    if (pushError) setFollowError(pushError);
+  };
+
+  const goToPage = (page: number) => {
+    const element = pagesRef.current;
+    if (!element) return;
+    element.scrollTo({ left: page * element.clientWidth, behavior: "smooth" });
+    setActivePage(page);
   };
 
   if (!access.canView) {
@@ -68,92 +80,62 @@ export default function ProfileView({
   }
 
   const editHref = `/${profile.username}?edit=1`;
-  const background = profile.banner_url
-    ? `url("${profile.banner_url}")`
-    : theme.backgroundType === "gradient"
-      ? theme.backgroundValue
-      : theme.page;
+  const action = access.isOwner ? (
+    <Link href={editHref} className="inline-flex min-h-11 items-center rounded-full px-5 text-sm font-semibold shadow-lg" style={{ color: theme.buttonText, background: theme.accent }}>
+      Edit profile
+    </Link>
+  ) : access.viewerId ? (
+    <button onClick={() => void handleFollowToggle()} className="inline-flex min-h-11 items-center rounded-full border border-white/40 bg-white/10 px-5 text-sm font-semibold text-white backdrop-blur hover:bg-white/20">
+      {isFollowing ? "Following" : "Follow"}
+    </button>
+  ) : (
+    <Link href="/login" className="inline-flex min-h-11 items-center rounded-full border border-white/40 bg-white/10 px-5 text-sm font-semibold text-white backdrop-blur hover:bg-white/20">
+      Log in to follow
+    </Link>
+  );
 
   return (
-    <main className="min-h-screen w-full overflow-x-hidden" style={{ background: theme.page, color: theme.text, fontFamily: theme.fontBody }}>
-      <section className="relative min-h-[360px] w-full overflow-hidden sm:min-h-[420px]" style={{ backgroundImage: background, backgroundColor: theme.page, backgroundPosition: "center", backgroundSize: "cover" }}>
-        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/45 to-black/25" />
-        {(theme.stickers ?? []).map((sticker) => {
-          const localSticker = sticker.type === "svg" ? STICKERS.find((item) => item.id === sticker.value) : null;
-          if (sticker.type === "svg" && !localSticker) return null;
-          return (
-            <div
-              key={sticker.id}
-              aria-hidden="true"
-              className="pointer-events-none absolute z-[1] flex aspect-square items-center justify-center"
-              style={{
-                left: `${sticker.x}%`,
-                top: `${sticker.y}%`,
-                width: `${sticker.size}%`,
-                transform: `rotate(${sticker.rotation}deg)`,
-                fontSize: `clamp(2rem, ${sticker.size * 0.75}vw, 5rem)`,
-              }}
-            >
-              {sticker.type === "emoji" ? sticker.value : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={localSticker?.src ?? ""} alt="" className="h-full w-full object-contain" />
-              )}
-            </div>
-          );
-        })}
-        {access.isOwner ? (
-          <Link href={editHref} aria-label="Edit cover image" className="absolute right-4 top-4 z-10 inline-flex h-10 items-center gap-2 rounded-full border border-white/25 bg-black/45 px-4 text-sm font-medium text-white backdrop-blur hover:bg-black/65">
-            <ImagePlus className="h-4 w-4" /> Edit cover
-          </Link>
-        ) : null}
-
-        <div className="relative z-[1] mx-auto flex min-h-[360px] w-full max-w-7xl items-end px-5 pb-7 pt-20 sm:min-h-[420px] sm:px-8 sm:pb-9">
-          <div className="flex w-full flex-col items-start gap-5 sm:flex-row sm:items-end sm:gap-6">
-            <div className="relative shrink-0">
-              <span className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-4 border-white/90 bg-zinc-800 text-4xl font-bold text-white shadow-xl sm:h-36 sm:w-36">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" /> : (profile.name || profile.username).slice(0, 1).toUpperCase()}
-              </span>
-              {access.isOwner ? (
-                <Link href={editHref} aria-label="Edit profile photo" className="absolute bottom-1 right-1 flex h-10 w-10 items-center justify-center rounded-full border-2 border-black bg-violet-600 text-white shadow-lg hover:bg-violet-500">
-                  <Camera className="h-5 w-5" />
-                </Link>
-              ) : null}
-            </div>
-
-            <div className="min-w-0 flex-1 text-white">
-              <h1 className="break-words text-3xl font-bold tracking-tight drop-shadow sm:text-4xl">{profile.name || profile.username}</h1>
-              <p className="mt-1 text-sm text-white/75">@{profile.username}</p>
-              {profile.bio ? <p className="mt-3 max-w-2xl whitespace-pre-wrap text-sm leading-relaxed text-white/90 sm:text-base">{profile.bio}</p> : null}
-              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-white/85">
-                <span><strong className="text-white">{followerCount}</strong> followers</span>
-                <span><strong className="text-white">{stats.following}</strong> following</span>
-              </div>
-            </div>
-
-            <div className="shrink-0 pb-1">
-              {access.isOwner ? (
-                <Link href={editHref} className="inline-flex h-11 items-center rounded-full px-5 text-sm font-semibold shadow-lg" style={{ color: theme.buttonText, background: theme.accent }}>
-                  Edit profile
-                </Link>
-              ) : access.viewerId ? (
-                <button onClick={handleFollowToggle} className="inline-flex h-11 items-center rounded-full border border-white/40 bg-white/10 px-5 text-sm font-semibold text-white backdrop-blur hover:bg-white/20">
-                  {isFollowing ? "Following" : "Follow"}
-                </button>
-              ) : (
-                <Link href="/login" className="inline-flex h-11 items-center rounded-full border border-white/40 bg-white/10 px-5 text-sm font-semibold text-white backdrop-blur hover:bg-white/20">
-                  Log in to follow
-                </Link>
-              )}
-            </div>
+    <main className="relative h-dvh w-screen overflow-hidden bg-[#07061a]">
+      <div
+        ref={pagesRef}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          setActivePage(Math.round(element.scrollLeft / element.clientWidth));
+        }}
+        className="flex h-full w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden scroll-smooth"
+        aria-label={`${profile.name || profile.username}'s profile pages`}
+      >
+        <section id="profile-page" aria-label="Profile" className="h-full w-screen shrink-0 snap-start overflow-y-auto overscroll-y-contain bg-[#07061a]">
+          <div className="mx-auto w-full max-w-6xl px-3 py-5 pb-20 sm:px-6 sm:py-8">
+            {followError ? <p role="alert" className="mb-3 rounded-lg border border-red-400/20 bg-red-950/30 p-3 text-sm text-red-200">{followError}</p> : null}
+            <ProfileCanvas
+              profile={profile}
+              blocks={profile.blocks}
+              stats={{ followers: followerCount, following: stats.following }}
+              action={action}
+            />
           </div>
-        </div>
-      </section>
+        </section>
 
-      <div className="mx-auto w-full max-w-7xl px-3 py-5 sm:px-6 sm:py-8">
-        {followError ? <p role="alert" className="mb-4 text-sm text-red-400">{followError}</p> : null}
-        <ProfilePostGrid profile={profile} viewerId={access.viewerId} />
+        <section id="posts-page" aria-label="Posts" className="h-full w-screen shrink-0 snap-start overflow-y-auto overscroll-y-contain bg-[#07061a] pb-20 text-white">
+          <div className="sticky top-0 z-10 flex min-h-14 items-center justify-between border-b border-white/10 bg-[#07061a]/95 px-3 backdrop-blur sm:px-6">
+            <button onClick={() => goToPage(0)} className="inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-semibold text-white/85 hover:bg-white/10">
+              <ArrowLeft className="h-4 w-4" /> Profile
+            </button>
+            <h1 className="text-sm font-semibold">Posts</h1>
+            <span className="w-[76px]" aria-hidden="true" />
+          </div>
+          <ProfilePostGrid profile={profile} viewerId={access.viewerId} />
+        </section>
       </div>
+
+      <nav aria-label="Profile pages" className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-white/10 bg-[#100d20]/90 px-4 py-2 shadow-xl backdrop-blur">
+        <button onClick={() => goToPage(0)} aria-label="Show profile page" aria-current={activePage === 0 ? "page" : undefined} className={`h-3 w-3 rounded-full transition ${activePage === 0 ? "scale-125 bg-violet-300" : "bg-white/35 hover:bg-white/70"}`} />
+        <button onClick={() => goToPage(1)} aria-label="Show posts page" aria-current={activePage === 1 ? "page" : undefined} className={`h-3 w-3 rounded-full transition ${activePage === 1 ? "scale-125 bg-violet-300" : "bg-white/35 hover:bg-white/70"}`} />
+        <button onClick={() => goToPage(activePage === 0 ? 1 : 0)} aria-label={activePage === 0 ? "Go to posts" : "Back to profile"} className="ml-1 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20">
+          {activePage === 0 ? <ArrowRight className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />}
+        </button>
+      </nav>
     </main>
   );
 }

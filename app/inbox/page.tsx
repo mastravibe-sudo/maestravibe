@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ImagePlus, MessageCircle, MoreHorizontal, Send, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, Check, CheckCheck, ImagePlus, MessageCircle, MoreHorizontal, Send, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { compressImage } from "@/lib/media/compress";
 import { useCurrentUser } from "@/components/CurrentUserContext";
+import { requestActivityPush } from "@/lib/notifications/client";
 
 type Person = { id: string; username: string; name: string | null; avatar_url: string | null };
 type InboxSummary = {
@@ -48,6 +49,8 @@ export default function InboxPage() {
   const userId = currentUser.userId;
   const [summaries, setSummaries] = useState<InboxSummary[]>([]);
   const [people, setPeople] = useState<Record<string, Person>>({});
+  const [friends, setFriends] = useState<Person[]>([]);
+  const [suggestions, setSuggestions] = useState<Person[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [readMessageIds, setReadMessageIds] = useState<Set<string>>(() => new Set());
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -57,8 +60,10 @@ export default function InboxPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [communityLoading, setCommunityLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [followingBusyId, setFollowingBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const selectedSummary = summaries.find((summary) => summary.conversation_id === selectedConversationId) ?? null;
@@ -67,6 +72,55 @@ export default function InboxPage() {
     : null;
   const otherPerson = otherId ? people[otherId] : null;
   const inboxLoading = !currentUser.ready || (!!userId && loading);
+
+  const loadCommunity = useCallback(async () => {
+    if (!currentUser.ready) return;
+    if (!userId) {
+      setFriends([]);
+      setSuggestions([]);
+      setCommunityLoading(false);
+      return;
+    }
+
+    setCommunityLoading(true);
+    const [followingResult, followersResult] = await Promise.all([
+      supabase.from("follows").select("followed_id").eq("follower_id", userId),
+      supabase.from("follows").select("follower_id").eq("followed_id", userId),
+    ]);
+
+    const relationshipError = followingResult.error ?? followersResult.error;
+    if (relationshipError) {
+      setError(relationshipError.message);
+      setCommunityLoading(false);
+      return;
+    }
+
+    const followedIds = new Set((followingResult.data ?? []).map((row) => row.followed_id as string));
+    const followerIds = new Set((followersResult.data ?? []).map((row) => row.follower_id as string));
+    const mutualIds = [...followedIds].filter((id) => followerIds.has(id));
+    const [friendsResult, profilesResult] = await Promise.all([
+      mutualIds.length
+        ? supabase.from("profiles").select("id,username,name,avatar_url").in("id", mutualIds)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from("profiles").select("id,username,name,avatar_url").neq("id", userId).order("created_at", { ascending: false }).limit(40),
+    ]);
+    const profileError = friendsResult.error ?? profilesResult.error;
+    if (profileError) {
+      setError(profileError.message);
+      setCommunityLoading(false);
+      return;
+    }
+
+    const mutualFriends = (friendsResult.data ?? []) as Person[];
+    const profiles = (profilesResult.data ?? []) as Person[];
+    setFriends(mutualFriends);
+    setSuggestions(profiles.filter((person) => !followedIds.has(person.id)).slice(0, 6));
+    setPeople((current) => ({
+      ...current,
+      ...Object.fromEntries([...mutualFriends, ...profiles].map((person) => [person.id, person])),
+    }));
+    setCommunityLoading(false);
+  }, [currentUser.ready, supabase, userId]);
 
   const loadSummaries = useCallback(async () => {
     if (!userId) return;
@@ -116,7 +170,7 @@ export default function InboxPage() {
 
     const { data: receipts, error: receiptsError } = await supabase
       .from("message_reads")
-      .select("message_id")
+      .select("message_id,reader_id")
       .eq("conversation_id", conversationId)
       .in("message_id", ids);
     if (receiptsError) {
@@ -124,9 +178,12 @@ export default function InboxPage() {
       return;
     }
 
-    const readIds = new Set((receipts ?? []).map((receipt) => receipt.message_id as string));
+    const readIds = new Set((receipts ?? [])
+      .filter((receipt) => receipt.reader_id !== userId)
+      .map((receipt) => receipt.message_id as string));
     setReadMessageIds(readIds);
-    const unreadIncoming = rows.filter((message) => message.sender_id !== userId && !readIds.has(message.id));
+    const existingReadIds = new Set((receipts ?? []).map((receipt) => receipt.message_id as string));
+    const unreadIncoming = rows.filter((message) => message.sender_id !== userId && !existingReadIds.has(message.id));
     if (unreadIncoming.length) {
       const { error: readError } = await supabase.from("message_reads").upsert(
         unreadIncoming.map((message) => ({
@@ -138,11 +195,15 @@ export default function InboxPage() {
       );
       if (readError) setError(readError.message);
       else {
-        setReadMessageIds((current) => new Set([...current, ...unreadIncoming.map((message) => message.id)]));
         void loadSummaries();
       }
     }
   }, [loadSummaries, supabase, userId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCommunity();
+  }, [loadCommunity]);
 
   useEffect(() => {
     if (!userId) return;
@@ -238,6 +299,24 @@ export default function InboxPage() {
     openConversation(data.id);
   };
 
+  const followPerson = async (person: Person) => {
+    if (!userId || followingBusyId) return;
+    setFollowingBusyId(person.id);
+    setError(null);
+    const { error: followError } = await supabase.from("follows").insert({
+      follower_id: userId,
+      followed_id: person.id,
+    });
+    if (followError) {
+      setError(followError.message);
+    } else {
+      const pushError = await requestActivityPush({ type: "follow", profileId: person.id });
+      if (pushError) setError(pushError);
+      await loadCommunity();
+    }
+    setFollowingBusyId(null);
+  };
+
   const openConversation = (conversationId: string) => {
     setMessages([]);
     setReadMessageIds(new Set());
@@ -297,7 +376,6 @@ export default function InboxPage() {
     }
   };
 
-  const selectedPeople = useMemo(() => people, [people]);
   const unreadTotal = summaries.reduce((total, summary) => total + Number(summary.unread_count), 0);
 
   return (
@@ -326,22 +404,66 @@ export default function InboxPage() {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {!userId && !inboxLoading ? <Link href="/login" className="m-4 block rounded-2xl border border-white/10 bg-zinc-900 p-4 text-center text-sm text-zinc-300">Log in to open your inbox</Link> : null}
-          {inboxLoading ? <p className="p-6 text-center text-sm text-zinc-500">Loading conversations...</p> : null}
-          {userId && !inboxLoading && !summaries.length ? <div className="px-6 py-14 text-center"><MessageCircle className="mx-auto h-9 w-9 text-zinc-600" /><p className="mt-4 font-semibold text-zinc-300">Your inbox starts here</p><p className="mt-2 text-sm leading-relaxed text-zinc-500">Search for a username above to start a conversation.</p></div> : null}
-          {summaries.map((summary) => {
-            const personId = summary.participant_one === userId ? summary.participant_two : summary.participant_one;
-            const person = selectedPeople[personId];
-            const preview = summary.last_image_url ? "📷 Photo" : summary.last_body || "Start a conversation";
-            return (
-              <button key={summary.conversation_id} onClick={() => openConversation(summary.conversation_id)} className={`flex w-full items-center gap-3 border-b border-white/[0.06] px-4 py-4 text-left transition hover:bg-white/[0.04] ${selectedConversationId === summary.conversation_id ? "bg-violet-400/[0.08]" : ""}`}>
-                <Avatar person={person} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2"><span className="truncate text-sm font-semibold text-white">{person?.name || person?.username || "Maestra member"}</span><time className="shrink-0 text-[10px] text-zinc-500">{formatMessageTime(summary.last_message_at)}</time></span>
-                  <span className="mt-1 flex items-center justify-between gap-2"><span className={`truncate text-xs ${summary.unread_count ? "font-semibold text-zinc-200" : "text-zinc-500"}`}>{summary.last_sender_id === userId && summary.last_body ? "You: " : ""}{preview}</span>{summary.unread_count ? <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-violet-500 px-1 text-[10px] font-bold text-white">{summary.unread_count}</span> : null}</span>
-                </span>
-              </button>
-            );
-          })}
+          {error && !selectedConversationId ? <p role="alert" className="mx-4 mt-4 rounded-xl border border-red-400/20 bg-red-950/40 p-3 text-sm text-red-200">{error}</p> : null}
+
+          {userId ? (
+            <section className="border-b border-white/[0.06] px-4 py-4">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Friends</h2>
+              {communityLoading ? <p className="text-xs text-zinc-500">Loading friends...</p> : friends.length ? (
+                <div className="flex gap-4 overflow-x-auto pb-1">
+                  {friends.map((person) => (
+                    <button key={person.id} onClick={() => void startConversation(person)} className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center" aria-label={`Message ${person.name || person.username}`}>
+                      <Avatar person={person} />
+                      <span className="w-full truncate text-[11px] text-zinc-300">{person.name || person.username}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : <p className="text-xs text-zinc-500">Mutual follows will appear here.</p>}
+            </section>
+          ) : null}
+
+          <section>
+            <h2 className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Messages{unreadTotal ? <span className="ml-2 text-violet-300">{unreadTotal} unread</span> : null}</h2>
+            {inboxLoading ? <p className="px-4 py-6 text-center text-sm text-zinc-500">Loading conversations...</p> : null}
+            {userId && !inboxLoading && !summaries.length ? <p className="px-4 py-5 text-sm text-zinc-500">No conversations yet. Message a friend or someone suggested below.</p> : null}
+            {summaries.map((summary) => {
+              const personId = summary.participant_one === userId ? summary.participant_two : summary.participant_one;
+              const person = people[personId];
+              const preview = summary.last_image_url ? "📷 Photo" : summary.last_body || "Start a conversation";
+              return (
+                <button key={summary.conversation_id} onClick={() => openConversation(summary.conversation_id)} className={`flex w-full items-center gap-3 border-b border-white/[0.06] px-4 py-3.5 text-left transition hover:bg-white/[0.04] ${selectedConversationId === summary.conversation_id ? "bg-violet-400/[0.08]" : ""}`}>
+                  <Avatar person={person} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2"><span className="truncate text-sm font-semibold text-white">{person?.name || person?.username || "Maestra member"}</span><time className="shrink-0 text-[10px] text-zinc-500">{formatMessageTime(summary.last_message_at)}</time></span>
+                    <span className="mt-1 flex items-center justify-between gap-2"><span className={`truncate text-xs ${summary.unread_count ? "font-semibold text-zinc-200" : "text-zinc-500"}`}>{summary.last_sender_id === userId && summary.last_body ? "You: " : ""}{preview}</span>{summary.unread_count ? <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-violet-500 px-1 text-[10px] font-bold text-white">{summary.unread_count}</span> : null}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </section>
+
+          {userId ? (
+            <section className="border-t border-white/[0.06] px-4 py-4">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Suggested</h2>
+              {communityLoading ? <p className="text-xs text-zinc-500">Finding people...</p> : suggestions.length ? (
+                <div className="space-y-3">
+                  {suggestions.map((person) => (
+                    <article key={person.id} className="flex items-center gap-3">
+                      <Avatar person={person} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-white">{person.name || person.username}</p>
+                        <p className="truncate text-xs text-zinc-500">@{person.username}</p>
+                      </div>
+                      <button disabled={followingBusyId === person.id} onClick={() => void followPerson(person)} className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:border-violet-400 disabled:opacity-50">
+                        {followingBusyId === person.id ? "..." : "Follow"}
+                      </button>
+                      <button onClick={() => void startConversation(person)} className="rounded-full bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-400">Message</button>
+                    </article>
+                  ))}
+                </div>
+              ) : <p className="text-xs text-zinc-500">No new people to suggest right now.</p>}
+            </section>
+          ) : null}
         </div>
       </aside>
 
@@ -349,7 +471,7 @@ export default function InboxPage() {
         {selectedConversationId && otherPerson ? (
           <>
             <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-white/10 px-4">
-              <button onClick={() => setSelectedConversationId(null)} aria-label="Back to inbox" className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 hover:bg-white/10 sm:hidden"><ArrowLeft className="h-5 w-5" /></button>
+              <button onClick={() => setSelectedConversationId(null)} aria-label="Back to inbox" className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-300 hover:bg-white/10"><ArrowLeft className="h-5 w-5" /></button>
               <Link href={`/${otherPerson.username}`} className="flex min-w-0 flex-1 items-center gap-3">
                 <Avatar person={otherPerson} />
                 <span className="min-w-0"><span className="block truncate text-sm font-semibold text-white">{otherPerson.name || otherPerson.username}</span><span className="block truncate text-xs text-zinc-500">@{otherPerson.username}</span></span>
@@ -372,7 +494,11 @@ export default function InboxPage() {
                       ) : null}
                       {message.body ? <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.body}</p> : null}
                       <p className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${own ? "text-violet-100/70" : "text-zinc-500"}`}>
-                        {formatMessageTime(message.created_at)}{own && readMessageIds.has(message.id) ? <span>· Seen</span> : null}
+                        <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
+                        {own ? readMessageIds.has(message.id)
+                          ? <CheckCheck aria-label="Read" className="h-3.5 w-3.5 text-sky-200" />
+                          : <Check aria-label="Sent" className="h-3.5 w-3.5" />
+                          : null}
                       </p>
                     </div>
                   </div>

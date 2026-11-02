@@ -286,7 +286,7 @@ export default function StatusBar({ userId }: { userId: string | null }) {
 
   return (
     <>
-      <section aria-label="Statuses" className="overflow-hidden rounded-2xl border border-white/10 bg-[#141028] px-3 py-4">
+      <section aria-label="Statuses" className="overflow-hidden rounded-xl border border-white/[0.06] bg-[#141028] px-2.5 py-3">
         <div className="flex gap-3 overflow-x-auto pb-1">
           <div className="flex w-[76px] shrink-0 flex-col items-center gap-2">
             <div className="relative h-[68px] w-[68px]">

@@ -6,6 +6,7 @@ import { Bookmark, Flame, Play } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { mediaOf, type Orig, type Row } from "@/components/postUtils";
 import type { ProfileRecord } from "@/lib/profile-schema";
+import { requestActivityPush } from "@/lib/notifications/client";
 
 const PostViewer = dynamic(() => import("@/components/PostViewer"), { loading: () => null });
 
@@ -78,6 +79,8 @@ export default function ProfilePostGrid({ profile, viewerId }: { profile: Profil
     if (!current || (current.kind ?? "vibe") !== kind) {
       const { error: insertError } = await supabase.from("vibes").insert({ post_id: selected.id, user_id: viewerId, kind });
       if (insertError) return setError(insertError.message);
+      const pushError = await requestActivityPush({ type: "vibe", postId: selected.id });
+      if (pushError) setError(pushError);
     }
     await load();
   };
@@ -106,8 +109,10 @@ export default function ProfilePostGrid({ profile, viewerId }: { profile: Profil
   const comment = async (body: string) => {
     if (!selected || !viewerId) return;
     const { error: commentError } = await supabase.from("comments").insert({ post_id: selected.id, user_id: viewerId, body });
-    if (commentError) setError(commentError.message);
-    else await load();
+    if (commentError) return setError(commentError.message);
+    const pushError = await requestActivityPush({ type: "comment", postId: selected.id });
+    if (pushError) setError(pushError);
+    await load();
   };
   const report = async (reason: string) => {
     if (!selected || !viewerId) return;
@@ -141,8 +146,8 @@ export default function ProfilePostGrid({ profile, viewerId }: { profile: Profil
   };
 
   return (
-    <section>
-      <div className="mb-4 flex border-b border-white/10" role="tablist" aria-label="Profile posts">
+    <section className="min-h-full w-full bg-[#07061a]">
+      <div className="mb-4 flex border-b border-white/10 px-3 sm:px-6" role="tablist" aria-label="Profile posts">
         {(["Posts", "Videos", "Vibes"] as const).map((item) => (
           <button key={item} role="tab" aria-selected={tab === item} onClick={() => setTab(item)} className={`min-h-12 flex-1 border-b-2 px-3 text-sm font-semibold transition ${tab === item ? "border-violet-400 text-white" : "border-transparent text-white/55 hover:text-white/80"}`}>
             {item}
@@ -152,22 +157,22 @@ export default function ProfilePostGrid({ profile, viewerId }: { profile: Profil
 
       {error ? <p role="alert" className="mb-4 rounded-lg border border-red-400/20 bg-red-950/30 p-3 text-sm text-red-200">{error}</p> : null}
       {loading ? <p className="py-12 text-center text-sm text-white/50">Loading posts...</p> : filtered.length ? (
-        <div className="grid grid-cols-3 gap-1 sm:gap-2">
-          {filtered.map((row, index) => {
+        <div className="grid w-full grid-cols-3 gap-px bg-[#07061a]">
+          {filtered.map((row) => {
             const shown = row.original ?? row;
             const media = mediaOf(shown)[0];
             return (
-              <button key={row.id} onClick={() => setSelected(row)} aria-label={`Open ${media?.type === "video" ? "video" : "post"}`} className="group relative aspect-square overflow-hidden bg-white/5 text-left">
+              <button key={row.id} onClick={() => setSelected(row)} aria-label={`Open ${media?.type === "video" ? "video" : "post"}`} className="group relative aspect-square overflow-hidden bg-[#10101a] text-left">
                 {media?.type === "video" ? (
                   <>
-                    <video src={`${media.url}#t=0.1`} muted playsInline preload={index < 3 ? "metadata" : "none"} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                    <video src={media.url} poster={media.poster ?? media.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
                     <Play className="absolute right-2 top-2 h-5 w-5 fill-white text-white drop-shadow" />
                   </>
                 ) : media ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={media.url} alt={shown.title || shown.body.slice(0, 100)} loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
                 ) : (
-                  <span className="flex h-full flex-col justify-between bg-gradient-to-br from-violet-950 via-[#17122b] to-fuchsia-950 p-2 text-white sm:p-4">
+                  <span className="flex h-full flex-col justify-between bg-[#10101a] p-2 text-white sm:p-4">
                     <span className="line-clamp-5 text-xs font-medium leading-relaxed sm:text-sm">{shown.title || shown.body || "Vibe"}</span>
                     <span className="flex items-center gap-1 text-[10px] text-white/70"><Flame className="h-3 w-3" />{row.vibes.length}</span>
                   </span>

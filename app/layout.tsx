@@ -7,6 +7,7 @@ import { ColorModeProvider } from "@/lib/theme";
 export const metadata: Metadata = {
   title: "Maestra Vibe",
   description: "Apni vibe, apni profile.",
+  robots: { index: false, follow: true },
   appleWebApp: {
     capable: true,
     title: "Maestra Vibe",

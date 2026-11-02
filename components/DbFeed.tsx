@@ -4,13 +4,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { Bookmark, Clapperboard, Flame, HandHeart, ImagePlus, MessageCircle, Play, Repeat2, Share2, Video } from "lucide-react";
+import type { ReactNode } from "react";
+import { Bookmark, Clapperboard, ExternalLink, Flame, HandHeart, ImagePlus, MessageCircle, Play, Repeat2, Share2, ShoppingBag, Video } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { typeMeta } from "@/components/postMeta";
 import PostComposer from "@/components/PostComposer";
 import { Avatar, ago, mediaOf, type Orig, type Row } from "@/components/postUtils";
 import { diversifyFeed, rankVideos } from "@/lib/feed/rank";
 import StatusBar from "@/components/StatusBar";
+import { requestActivityPush as sendActivityPush } from "@/lib/notifications/client";
+import { activateVideo, deactivateVideo, hasActiveVideo, isVideoActive } from "@/lib/activeVideo";
 
 const ShortsViewer = dynamic(() => import("@/components/ShortsViewer"), { loading: () => null });
 const PostViewer = dynamic(() => import("@/components/PostViewer"), { loading: () => null });
@@ -21,13 +24,16 @@ const SELECT =
   "comments(id,body,pinned,created_at,user_id,profiles!comments_user_id_fkey(username,name,avatar_url))";
 const ORIG = "id,title,body,image_url,media,profiles!posts_user_id_fkey(username,name,avatar_url)";
 const BRAND = "bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500";
-const card = "overflow-hidden rounded-2xl border border-white/10 bg-[#141028]";
+const card = "overflow-hidden rounded-xl border border-white/[0.06] bg-[#141028]";
 const act = "flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 text-base text-[#c9c4e8] hover:bg-white/10 active:scale-95 disabled:opacity-40";
 const TABS = ["For you", "Following", "Videos"] as const;
 const isVideo = (r: Row) => mediaOf(r.original ?? r)[0]?.type === "video";
+type MarketProduct = { id: string; title: string; price: number; currency: string; image_url: string | null; url: string; in_stock: boolean };
+const EMPTY_IDS: string[] = [];
 
-export default function DbFeed() {
+export default function DbFeed({ circleCard, discoverCard }: { circleCard?: ReactNode; discoverCard?: ReactNode }) {
   const [supabase] = useState(() => createClient());
+  const feedRef = useRef<HTMLElement>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [me, setMe] = useState<string | null>(null);
   const [following, setFollowing] = useState<string[]>([]);
@@ -39,9 +45,12 @@ export default function DbFeed() {
   const [initialShortId, setInitialShortId] = useState<string | null>(null);
   const [watched, setWatched] = useState<{ key: string; ids: string[] }>({ key: "", ids: [] });
   const [openId, setOpenId] = useState<string | null>(null);
+  const [openComments, setOpenComments] = useState(false);
   const [hidden, setHidden] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [products, setProducts] = useState<MarketProduct[]>([]);
+  const [marketError, setMarketError] = useState("");
   const deepLinked = useRef(false);
   const watchedKey = `mv-short-watched:${me ?? "guest"}`;
 
@@ -58,6 +67,17 @@ export default function DbFeed() {
     ]);
     const user = authResult.data.user;
     setMe(user?.id ?? null);
+    const nextWatchedKey = `mv-short-watched:${user?.id ?? "guest"}`;
+    setWatched((current) => {
+      if (current.key === nextWatchedKey) return current;
+      try {
+        const stored: unknown = JSON.parse(localStorage.getItem(nextWatchedKey) ?? "[]");
+        const ids = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : [];
+        return { key: nextWatchedKey, ids };
+      } catch {
+        return { key: nextWatchedKey, ids: [] };
+      }
+    });
     if (user) {
       const { data: f } = await supabase.from("follows").select("followed_id").eq("follower_id", user.id);
       setFollowing((f ?? []).map((x) => x.followed_id as string));
@@ -88,13 +108,18 @@ export default function DbFeed() {
   }, [load]);
 
   useEffect(() => {
-    let ids: string[] = [];
-    try {
-      const stored: unknown = JSON.parse(localStorage.getItem(watchedKey) ?? "[]");
-      if (Array.isArray(stored)) ids = stored.filter((id): id is string => typeof id === "string");
-    } catch { /* ignore malformed local history */ }
-    setWatched({ key: watchedKey, ids });
-  }, [watchedKey]);
+    let active = true;
+    void fetch("/api/market/products")
+      .then(async (response) => {
+        const page = await response.json() as { items?: MarketProduct[]; error?: string };
+        if (!response.ok) throw new Error(page.error || "Market products are temporarily unavailable.");
+        if (active) setProducts(Array.isArray(page.items) ? page.items.slice(0, 3) : []);
+      })
+      .catch((loadError: unknown) => {
+        if (active) setMarketError(loadError instanceof Error ? loadError.message : "Market products are temporarily unavailable.");
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (deepLinked.current || !rows.length) return;
@@ -111,19 +136,8 @@ export default function DbFeed() {
   };
   const need = () => setError("Log in to do that.");
   const requestActivityPush = async (activity: { type: "vibe" | "comment"; postId: string }) => {
-    try {
-      const response = await fetch("/api/notifications/push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(activity),
-      });
-      if (!response.ok) {
-        const result = await response.json() as { error?: string };
-        setError(result.error || "Push notification delivery failed.");
-      }
-    } catch {
-      setError("Push notification delivery failed.");
-    }
+    const pushError = await sendActivityPush(activity);
+    if (pushError) setError(pushError);
   };
 
   const react = async (r: Row, kind: "vibe" | "support" | "inspire" = "vibe") => {
@@ -180,11 +194,34 @@ export default function DbFeed() {
     [notHidden, tab, me, following]
   );
   const feedRows = useMemo(() => diversifyFeed(visible), [visible]);
-  const watchedIds = watched.key === watchedKey ? watched.ids : [];
+  const watchedIds = useMemo(
+    () => watched.key === watchedKey ? watched.ids : EMPTY_IDS,
+    [watched.key, watched.ids, watchedKey],
+  );
   const rankedShorts = useMemo(
     () => rankVideos(notHidden.filter(isVideo), { followedIds: following, watchedIds }),
     [notHidden, following, watchedIds]
   );
+  const shortsAt = useMemo(() => {
+    const placements = new Map<number, Row[]>();
+    const used = new Set<string>();
+    if (tab !== "Videos") {
+      for (let postCount = 6; postCount <= feedRows.length; postCount += 6) {
+        const strip = rankedShorts.filter((row) => !used.has(row.id)).slice(0, 8);
+        strip.forEach((row) => used.add(row.id));
+        if (strip.length) placements.set(postCount, strip);
+      }
+    }
+    return placements;
+  }, [feedRows.length, rankedShorts, tab]);
+  const marketAt = useMemo(() => {
+    const placements = new Map<number, MarketProduct>();
+    for (let i = 0; i < products.length; i += 1) {
+      const postCount = (i + 1) * 8;
+      if (postCount <= feedRows.length) placements.set(postCount, products[i]);
+    }
+    return placements;
+  }, [feedRows.length, products]);
   const openShorts = (initialId: string | null = null) => {
     setShortsRows(rankedShorts);
     setInitialShortId(initialId);
@@ -200,19 +237,62 @@ export default function DbFeed() {
   };
   const open = rows.find((r) => r.id === openId) ?? null;
 
+  useEffect(() => {
+    const root = feedRef.current;
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    const videos = [...root.querySelectorAll<HTMLVideoElement>("video[data-feed-video]")];
+    if (shorts || openId) {
+      videos.forEach((video) => {
+        video.pause();
+        deactivateVideo(video);
+      });
+      return;
+    }
+    const ratios = new Map<HTMLVideoElement, number>();
+    const selectVisibleVideo = () => {
+      const next = [...ratios.entries()]
+        .filter(([, ratio]) => ratio >= 0.6)
+        .sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (!next || (hasActiveVideo() && !isVideoActive(next))) return;
+      activateVideo(next);
+      void next.play().catch(() => undefined);
+    };
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const video = entry.target as HTMLVideoElement;
+        ratios.set(video, entry.intersectionRatio);
+        if (entry.intersectionRatio < 0.6) {
+          video.pause();
+          deactivateVideo(video);
+        }
+      });
+      selectVisibleVideo();
+    }, { threshold: [0, 0.6, 1] });
+    videos.forEach((video) => observer.observe(video));
+    const onVideoReleased = () => selectVisibleVideo();
+    window.addEventListener("mv:video-released", onVideoReleased);
+    return () => {
+      window.removeEventListener("mv:video-released", onVideoReleased);
+      observer.disconnect();
+      videos.forEach((video) => {
+        video.pause();
+        deactivateVideo(video);
+      });
+    };
+  }, [feedRows, openId, shorts, shortsAt]);
+
   return (
-    <section data-mode="dark" aria-label="Community feed" className="mx-auto max-w-3xl space-y-4 px-0 py-3 sm:py-5">
+    <section ref={feedRef} data-mode="dark" aria-label="Community feed" className="mx-auto max-w-3xl space-y-3 px-0 py-3 sm:py-5">
+      <StatusBar userId={me} />
       {me ? (
         <div className={`${card} flex items-center gap-2 p-3`}>
-          <button onClick={() => setCreating(true)} className="h-12 flex-1 rounded-full bg-[#1d1840] px-4 text-left text-base text-[#a8a2c9] hover:bg-[#25205a]">What is your vibe today?</button>
+          <button onClick={() => setCreating(true)} className="h-11 flex-1 rounded-xl bg-[#1d1840] px-4 text-left text-sm text-[#a8a2c9] hover:bg-[#25205a]">What&apos;s your vibe today?</button>
           <button onClick={() => setCreating(true)} aria-label="Add photo" className="flex h-12 w-12 items-center justify-center rounded-full text-violet-500 hover:bg-white/10"><ImagePlus className="h-6 w-6" /></button>
           <button onClick={() => setCreating(true)} aria-label="Add video" className="flex h-12 w-12 items-center justify-center rounded-full text-pink-500 hover:bg-white/10"><Video className="h-6 w-6" /></button>
         </div>
       ) : !loading ? (
         <Link href="/login" className={`${card} block p-4 text-center text-base text-[#c9c4e8] hover:bg-white/5`}>Log in or sign up to share your vibe</Link>
       ) : null}
-
-      <StatusBar userId={me} />
 
       <div className="flex items-center gap-2">
         <div className="flex flex-1 gap-1 rounded-full bg-[#141028] p-1" role="tablist" aria-label="Feed sections">
@@ -233,11 +313,11 @@ export default function DbFeed() {
         const liked = !!me && r.vibes.some((v) => v.user_id === me);
         const saved = !!me && r.saves.some((s) => s.user_id === me);
         return (
-          <div key={r.id} className="space-y-4">
+          <div key={r.id} className="space-y-3">
           <article className={card}>
             <div className="h-1 w-full" style={{ background: `linear-gradient(90deg, ${meta.color}, #8b5cf6, #3b82f6)` }} />
-            <div className="p-4">
-              <header className="mb-3 flex items-center gap-3">
+            <div className="p-3 sm:p-3.5">
+            <header className="mb-2 flex items-center gap-3">
                 <Link href={`/${a.username}`}><Avatar p={a} size="h-12 w-12" /></Link>
                 <div className="min-w-0 flex-1">
                   <Link href={`/${a.username}`} className="block truncate text-base font-semibold hover:underline">{a.name || a.username}</Link>
@@ -246,15 +326,22 @@ export default function DbFeed() {
                 <span className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold" style={{ background: `${meta.color}22`, color: meta.color }}><meta.Icon className="h-4 w-4" aria-hidden="true" />{meta.label}</span>
               </header>
 
-              <button onClick={() => setOpenId(r.id)} className="block w-full text-left" aria-label="Open post">
+              <button onClick={() => {
+                if (m?.type === "video") {
+                  openShorts(r.id);
+                  return;
+                }
+                setOpenComments(false);
+                setOpenId(r.id);
+              }} className="block w-full text-left" aria-label={m?.type === "video" ? "Open video" : "Open post"}>
                 {shown.title ? <h3 className="mb-1 text-lg font-bold">{shown.title}</h3> : null}
                 {r.body ? <p className="whitespace-pre-wrap text-base leading-relaxed">{r.body}</p> : null}
                 {r.original && !r.body ? <p className="text-sm text-[#a8a2c9]">@{r.original.profiles.username}: {r.original.body.slice(0, 160)}</p> : null}
                 {m ? (
-                  <span className="relative mt-3 block overflow-hidden rounded-xl bg-black">
+                  <span className="relative mt-2.5 block overflow-hidden rounded-lg bg-black">
                     {m.type === "video" ? (
                       <>
-                        <video src={`${m.url}#t=0.1`} preload={index < 2 ? "metadata" : "none"} muted playsInline className="max-h-[70vh] w-full object-cover" />
+                        <video data-feed-video src={m.url} poster={m.poster ?? m.thumbnail} preload="metadata" muted playsInline className="max-h-[70vh] w-full object-cover" />
                         <span className="absolute inset-0 flex items-center justify-center"><span className="rounded-full bg-black/60 p-5 text-white"><Play className="h-8 w-8" /></span></span>
                       </>
                     ) : (
@@ -267,28 +354,71 @@ export default function DbFeed() {
 
               <footer className="-mx-2 mt-3 flex items-center">
                 <button onClick={() => void vibe(r)} className={`${act} ${liked ? "font-semibold text-orange-500" : ""}`} aria-label={r.type === "struggle" ? "Support" : "Vibe"}>{r.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Flame className="h-6 w-6" />}{r.vibes.length}</button>
-                <button onClick={() => setOpenId(r.id)} className={act} aria-label="Comments"><MessageCircle className="h-6 w-6" />{r.comments.length}</button>
+                <button onClick={() => { setOpenComments(true); setOpenId(r.id); }} className={act} aria-label="Comments"><MessageCircle className="h-6 w-6" />{r.comments.length}</button>
                 <button onClick={() => void repost(r)} disabled={r.share_policy === "nobody" && r.user_id !== me} className={act} aria-label="Repost"><Repeat2 className="h-6 w-6" /></button>
                 <button onClick={() => void share(r)} className={act} aria-label="Share"><Share2 className="h-6 w-6" /></button>
                 <button onClick={() => void save(r)} className={`${act} ml-auto ${saved ? "text-yellow-500" : ""}`} aria-label="Save"><Bookmark className={`h-6 w-6 ${saved ? "fill-current" : ""}`} /></button>
               </footer>
             </div>
           </article>
-          {tab !== "Videos" && (index + 1) % 5 === 0 && rankedShorts.length > 0 ? (
-            <section aria-label="Shorts" className={`${card} p-4`}>
+          {(index + 1) === 4 && circleCard}
+          {(index + 1) === 6 && shortsAt.get(index + 1) ? (
+            <section aria-label="Shorts" className={`${card} p-3`}>
               <header className="mb-3 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-base font-semibold"><Clapperboard className="h-5 w-5 text-fuchsia-400" />Shorts</h2>
                 <button onClick={() => openShorts()} className="text-sm font-semibold text-violet-300">Watch all</button>
               </header>
-              <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1">
-                {rankedShorts.slice(0, 8).map((short, shortIndex) => {
+              <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1">
+                {(shortsAt.get(index + 1) ?? []).map((short) => {
                   const shortMedia = mediaOf(short.original ?? short)[0];
                   return (
-                    <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-xl bg-black text-left sm:w-32">
-                      <video src={`${shortMedia.url}#t=0.1`} muted playsInline preload={shortIndex === 0 ? "metadata" : "none"} className="h-full w-full object-cover" />
+                    <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-lg bg-black text-left sm:w-32">
+                      <video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover" />
                       <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 text-xs font-semibold text-white">@{short.profiles.username}</span>
                     </button>
                   );
+                })}
+              </div>
+            </section>
+          ) : null}
+          {(index + 1) === 8 && marketAt.get(index + 1) ? (() => {
+            const product = marketAt.get(index + 1)!;
+            return (
+              <a href={product.url} target="_blank" rel="noopener noreferrer" className={`${card} flex items-center gap-3 p-3 transition hover:bg-white/[0.03]`}>
+                {product.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={product.image_url} alt="" loading="lazy" className="h-16 w-16 shrink-0 rounded-lg bg-black/30 object-cover" />
+                ) : <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-[#1d1840]"><ShoppingBag className="h-6 w-6 text-violet-300" /></span>}
+                <span className="min-w-0 flex-1"><span className="block text-[10px] font-semibold uppercase tracking-wide text-violet-300">Maestra Market</span><span className="mt-1 block truncate text-sm font-semibold text-white">{product.title}</span><span className="mt-1 block text-xs text-[#c9c4e8]">{product.currency} {product.price.toLocaleString()}</span></span>
+                <ExternalLink className="h-4 w-4 shrink-0 text-[#a8a2c9]" />
+              </a>
+            );
+          })() : null}
+          {(index + 1) === 8 && !marketAt.get(index + 1) && marketError ? <p role="status" className={`${card} p-3 text-xs text-[#a8a2c9]`}>Maestra Market is unavailable: {marketError}</p> : null}
+          {(index + 1) === 9 && discoverCard}
+          {(index + 1) > 8 && (index + 1) % 8 === 0 && marketAt.get(index + 1) ? (() => {
+            const product = marketAt.get(index + 1)!;
+            return (
+              <a href={product.url} target="_blank" rel="noopener noreferrer" className={`${card} flex items-center gap-3 p-3 transition hover:bg-white/[0.03]`}>
+                {product.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={product.image_url} alt="" loading="lazy" className="h-16 w-16 shrink-0 rounded-lg bg-black/30 object-cover" />
+                ) : <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-[#1d1840]"><ShoppingBag className="h-6 w-6 text-violet-300" /></span>}
+                <span className="min-w-0 flex-1"><span className="block text-[10px] font-semibold uppercase tracking-wide text-violet-300">Maestra Market</span><span className="mt-1 block truncate text-sm font-semibold text-white">{product.title}</span><span className="mt-1 block text-xs text-[#c9c4e8]">{product.currency} {product.price.toLocaleString()}</span></span>
+                <ExternalLink className="h-4 w-4 shrink-0 text-[#a8a2c9]" />
+              </a>
+            );
+          })() : null}
+          {(index + 1) > 6 && (index + 1) % 6 === 0 && shortsAt.get(index + 1) ? (
+            <section aria-label="Shorts" className={`${card} p-3`}>
+              <header className="mb-3 flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-base font-semibold"><Clapperboard className="h-5 w-5 text-fuchsia-400" />Shorts</h2>
+                <button onClick={() => openShorts()} className="text-sm font-semibold text-violet-300">Watch all</button>
+              </header>
+              <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1">
+                {shortsAt.get(index + 1)?.map((short) => {
+                  const shortMedia = mediaOf(short.original ?? short)[0];
+                  return <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-lg bg-black text-left sm:w-32"><video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover" /><span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 text-xs font-semibold text-white">@{short.profiles.username}</span></button>;
                 })}
               </div>
             </section>
@@ -297,10 +427,10 @@ export default function DbFeed() {
         );
       })}
 
-      {shorts ? <ShortsViewer rows={shortsRows} me={me} initialId={initialShortId} onClose={() => setShorts(false)} onVibe={(r) => void vibe(r)} onOpen={(r) => setOpenId(r.id)} onShare={(r) => void share(r)} onWatch={markShortWatched} /> : null}
+      {shorts ? <ShortsViewer rows={shortsRows} me={me} initialId={initialShortId} onClose={() => setShorts(false)} onVibe={(r) => void vibe(r)} onOpen={(r) => { setOpenComments(true); setOpenId(r.id); }} onShare={(r) => void share(r)} onWatch={markShortWatched} /> : null}
       {open ? (
         <PostViewer
-          row={open} me={me} onClose={() => setOpenId(null)}
+          key={open.id} row={open} me={me} initialCommentsOpen={openComments} onClose={() => { setOpenId(null); setOpenComments(false); }}
           onReact={(k) => void react(open, k)} onSave={() => void save(open)} onRepost={() => void repost(open)} onShare={() => void share(open)}
           onComment={(b) => void comment(open, b)} onReport={(why) => void report(open, why)} onHide={() => hide(open)}
           onToggleComments={() => void toggleComments(open)} onDelete={() => void remove(open)}

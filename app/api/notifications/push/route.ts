@@ -6,6 +6,7 @@ export const runtime = "nodejs";
 
 type ActivityRequest =
   | { type: "vibe" | "comment"; postId: string }
+  | { type: "follow"; profileId: string }
   | { type: "message"; messageId: string }
   | { type: "profile_view"; profileId: string };
 
@@ -33,13 +34,13 @@ export async function POST(request: Request) {
   if ((activity.type === "vibe" || activity.type === "comment") && typeof activity.postId !== "string") {
     return Response.json({ error: "Missing post ID." }, { status: 400 });
   }
-  if (activity.type === "profile_view" && typeof activity.profileId !== "string") {
+  if ((activity.type === "profile_view" || activity.type === "follow") && typeof activity.profileId !== "string") {
     return Response.json({ error: "Missing profile ID." }, { status: 400 });
   }
   if (activity.type === "message" && typeof activity.messageId !== "string") {
     return Response.json({ error: "Missing message ID." }, { status: 400 });
   }
-  if (!["vibe", "comment", "profile_view", "message"].includes(activity.type)) {
+  if (!["vibe", "comment", "follow", "profile_view", "message"].includes(activity.type)) {
     return Response.json({ error: "Unsupported notification type." }, { status: 400 });
   }
 
@@ -51,7 +52,32 @@ export async function POST(request: Request) {
   }
 
   let notificationId: string | null = null;
-  if (activity.type === "profile_view") {
+  if (activity.type === "follow") {
+    if (activity.profileId === user.id) return Response.json({ sent: 0, skipped: true });
+
+    const { data: follow, error: followError } = await admin
+      .from("follows")
+      .select("followed_id")
+      .eq("follower_id", user.id)
+      .eq("followed_id", activity.profileId)
+      .maybeSingle();
+    if (followError) return Response.json({ error: "Could not verify follow activity." }, { status: 500 });
+    if (!follow) return Response.json({ sent: 0, skipped: true });
+
+    const { data: notification, error: notificationError } = await admin
+      .from("notifications")
+      .select("id")
+      .eq("recipient_id", activity.profileId)
+      .eq("actor_id", user.id)
+      .eq("type", "follow")
+      .is("push_sent_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (notificationError) return Response.json({ error: "Could not find the follow notification." }, { status: 500 });
+    notificationId = notification?.id ?? null;
+    if (!notificationId) return Response.json({ sent: 0, skipped: true });
+  } else if (activity.type === "profile_view") {
     if (activity.profileId === user.id) return Response.json({ sent: 0, skipped: true });
 
     const { data: target, error: targetError } = await admin
@@ -164,6 +190,7 @@ export async function POST(request: Request) {
 
   const sender = actor?.name || (actor?.username ? `@${actor.username}` : "Someone");
   const messages: Record<string, { title: string; body: string }> = {
+    follow: { title: "New follower", body: `${sender} started following you.` },
     vibe: { title: "New vibe", body: `${sender} reacted to your post.` },
     comment: { title: "New comment", body: `${sender} commented on your post.` },
     profile_view: { title: "Profile visit", body: `${sender} viewed your profile.` },
@@ -173,7 +200,13 @@ export async function POST(request: Request) {
   if (!details) return Response.json({ error: "Unsupported notification type." }, { status: 500 });
   const payload: PushPayload = {
     ...details,
-    url: notification.post_id ? `/p/${notification.post_id}` : notification.type === "message" ? "/inbox" : "/notifications",
+    url: notification.post_id
+      ? `/p/${notification.post_id}`
+      : notification.type === "message"
+        ? "/inbox"
+        : notification.type === "follow" && actor?.username
+          ? `/${actor.username}`
+          : "/notifications",
     tag: `activity-${notification.id}`,
   };
   if (subscriptions?.length && (

@@ -9,7 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useCurrentUser } from "@/components/CurrentUserContext";
 import { generateAiSuggestions } from "@/lib/ai/generate";
 import type { ProfileBlock, ProfileRecord, ProfileSticker, ProfileTheme } from "@/lib/profile-schema";
-import { templateCatalog, type TemplateId } from "@/lib/templates";
+import { createDefaultBlockConfig, createDefaultProfileBlocks, templateCatalog, type TemplateId } from "@/lib/templates";
 import ProfileCanvas, { getBlockGeometry, type BlockGeometry } from "@/components/ProfileCanvas";
 import ProfileView from "@/components/ProfileView";
 import { HeaderStylePicker } from "@/components/profile/HeaderStyles";
@@ -58,42 +58,6 @@ async function compressImage(file: File) {
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
-}
-
-function defaultConfig(type: BlockType): Record<string, unknown> {
-  switch (type) {
-    case "about": return { title: "About" };
-    case "links": return { title: "Links", links: [] };
-    case "gallery": return { title: "Gallery", images: [] };
-    case "quote": return { title: "Quote", body: "Write something worth remembering." };
-    case "divider": return {};
-    case "spacer": return {};
-    case "stats": return { title: "Stats" };
-    case "posts": return { title: "Recent posts" };
-    case "header": return {};
-    default: return { title: "New section", body: "Write your text here." };
-  }
-}
-
-function defaultBlocks(profile: ProfileRecord): ProfileBlock[] {
-  const defaults: Array<{ type: BlockType; locked: boolean }> = [
-    { type: "header", locked: true },
-    { type: "stats", locked: true },
-    { type: "about", locked: false },
-    { type: "links", locked: false },
-    { type: "gallery", locked: false },
-  ];
-  return defaults.map(({ type, locked }, index) => ({
-    id: `draft-default-${index}`,
-    profile_id: profile.id,
-    type,
-    position: index,
-    width: "full",
-    config: defaultConfig(type),
-    style: {},
-    visibility: "everyone",
-    locked,
-  }));
 }
 
 function messageOf(error: unknown, fallback: string) {
@@ -150,8 +114,8 @@ export default function ProfileStudio({
     layout: profile.theme.layout ?? "canvas",
     stickers: profile.theme.stickers ?? [],
   }));
-  const [blocks, setBlocks] = useState<ProfileBlock[]>(() => profile.blocks.length ? profile.blocks : defaultBlocks(profile));
-  const [selectedId, setSelectedId] = useState<string | null>(() => profile.blocks[0]?.id ?? null);
+  const [blocks, setBlocks] = useState<ProfileBlock[]>(() => profile.blocks.length ? profile.blocks : createDefaultProfileBlocks(profile.id));
+  const [selectedId, setSelectedId] = useState<string | null>(() => blocks[0]?.id ?? null);
   const [selectedStickerId, setSelectedStickerId] = useState<string | null>(null);
   const [stickerCategory, setStickerCategory] = useState<keyof typeof stickerCategories>("All");
   const [panelCollapsed, setPanelCollapsed] = useState(false);
@@ -265,7 +229,7 @@ export default function ProfileStudio({
       type,
       position: blocks.length,
       width: "full",
-      config: defaultConfig(type),
+      config: createDefaultBlockConfig(type),
       style: {},
       visibility: "everyone",
       locked: false,
@@ -313,6 +277,8 @@ export default function ProfileStudio({
       fontBody: preset.fonts.body,
       buttonStyle: preset.buttonStyle,
       sectionSpacing: preset.sectionSpacing,
+      skin: preset.skin ?? current.skin,
+      stickers: preset.stickers?.map((sticker) => ({ ...sticker, id: crypto.randomUUID() })) ?? current.stickers,
     }));
   };
 
@@ -560,6 +526,31 @@ export default function ProfileStudio({
       </div>
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="min-w-0 space-y-4">
+          <section className={`rounded-xl border border-white/10 bg-zinc-900/80 p-4 ${activeTool === "templates" ? "block" : "hidden"}`}>
+            <h2 className="text-base font-semibold">Choose a starting look</h2>
+            <p className="mb-3 mt-1 text-xs text-zinc-400">Swipe through live style previews. The canvas updates as soon as you choose one.</p>
+            <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
+              {Object.values(templateCatalog).map((template, index) => {
+                const threeDimensional = index % 3 !== 1;
+                return (
+                  <button key={template.id} onClick={() => applyTemplate(template.id)} aria-pressed={identity.template === template.id} className={`w-[220px] shrink-0 snap-start rounded-[24px] border p-2 text-left transition ${identity.template === template.id ? "border-violet-300 bg-violet-400/10 ring-2 ring-violet-400/40" : "border-white/10 bg-white/[0.03]"}`}>
+                    <div className="flex h-32 items-center justify-center overflow-hidden rounded-[18px]" style={{ background: template.background.value }}>
+                      <div className={`w-[78%] rounded-2xl border p-3 shadow-xl ${threeDimensional ? "[transform:perspective(520px)_rotateY(-9deg)_rotateX(5deg)]" : ""}`} style={{ background: template.colors.card, borderColor: template.colors.border, color: template.colors.text, boxShadow: template.shadow, borderRadius: `${template.radius}px`, fontFamily: template.fonts.body }}>
+                        <div className="mb-3 flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full text-sm" style={{ background: template.colors.accent, color: template.colors.buttonText }}>{(identity.name || profile.username).slice(0, 1).toUpperCase()}</span><span className="truncate text-xs font-semibold" style={{ fontFamily: template.fonts.heading }}>{identity.name || `@${profile.username}`}</span></div>
+                        <div className="mb-2 h-2 w-3/4 rounded-full" style={{ background: template.colors.accent }} />
+                        <div className="grid grid-cols-2 gap-2"><span className="h-7 rounded-lg" style={{ background: template.colors.cardAlt }} /><span className="h-7 rounded-lg" style={{ background: template.colors.cardAlt }} /></div>
+                        {template.stickers?.[0] ? <span className="mt-2 block text-right text-sm">{template.stickers[0].value}</span> : null}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 px-1 pb-1 pt-3"><span className="font-semibold">{template.name}</span><span className="rounded-full bg-white/10 px-2 py-1 text-[10px] text-zinc-300">{threeDimensional ? "3D" : "2D"}</span></div>
+                    <p className="px-1 pb-1 text-xs leading-relaxed text-zinc-400">{template.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
         <section className="min-w-0 rounded-xl border border-white/10 bg-zinc-900/60 p-2 sm:p-4">
           <div className="mb-3 flex items-center justify-between px-1 text-xs text-zinc-500">
             <span>Canvas</span><span>{blocks.filter((block) => block.style.hidden !== true).length} visible sections</span>
@@ -580,6 +571,7 @@ export default function ProfileStudio({
             onStickerUpdate={updateSticker}
           />
         </section>
+        </div>
 
         <aside className={`fixed inset-x-0 bottom-0 z-40 mx-auto flex w-full max-w-2xl flex-col overflow-hidden rounded-t-[28px] border border-white/15 bg-zinc-950/95 shadow-[0_-18px_70px_rgba(0,0,0,.55)] backdrop-blur-2xl ${panelCollapsed ? "h-[68px] lg:h-auto" : "max-h-[58dvh]"} lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:rounded-[26px]`}>
           <div className="flex shrink-0 items-center border-b border-white/10">
@@ -596,26 +588,8 @@ export default function ProfileStudio({
           </div>
           <div className={`${panelCollapsed ? "hidden" : "min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4"}`}>
           <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${activeTool === "templates" ? "block" : "hidden"}`}>
-            <h2 className="text-base font-semibold">Choose a starting look</h2>
-            <p className="mb-3 mt-1 text-xs text-zinc-400">Swipe through styles. Your preview updates as soon as you choose one.</p>
-            <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
-              {Object.values(templateCatalog).map((template, index) => {
-                const threeDimensional = index % 3 !== 1;
-                return (
-                  <button key={template.id} onClick={() => applyTemplate(template.id)} aria-pressed={identity.template === template.id} className={`w-[220px] shrink-0 snap-start rounded-[24px] border p-2 text-left transition ${identity.template === template.id ? "border-violet-300 bg-violet-400/10 ring-2 ring-violet-400/40" : "border-white/10 bg-white/[0.03]"}`}>
-                    <div className="flex h-32 items-center justify-center overflow-hidden rounded-[18px]" style={{ background: template.background.value }}>
-                      <div className={`w-[78%] rounded-2xl border p-3 shadow-xl ${threeDimensional ? "[transform:perspective(520px)_rotateY(-9deg)_rotateX(5deg)]" : ""}`} style={{ background: template.colors.card, borderColor: template.colors.border, color: template.colors.text, boxShadow: template.shadow }}>
-                        <div className="mb-3 flex items-center gap-2"><span className="h-7 w-7 rounded-full" style={{ background: template.colors.accent }} /><span className="h-2 w-20 rounded-full" style={{ background: template.colors.text }} /></div>
-                        <div className="mb-2 h-2 w-3/4 rounded-full" style={{ background: template.colors.accent }} />
-                        <div className="grid grid-cols-2 gap-2"><span className="h-7 rounded-lg" style={{ background: template.colors.cardAlt }} /><span className="h-7 rounded-lg" style={{ background: template.colors.cardAlt }} /></div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 px-1 pb-1 pt-3"><span className="font-semibold">{template.name}</span><span className="rounded-full bg-white/10 px-2 py-1 text-[10px] text-zinc-300">{threeDimensional ? "3D" : "2D"}</span></div>
-                    <p className="px-1 pb-1 text-xs leading-relaxed text-zinc-400">{template.description}</p>
-                  </button>
-                );
-              })}
-            </div>
+            <h2 className="text-sm font-semibold">Live template previews</h2>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-400">Swipe the cards above the canvas to apply a look. Colors, paired fonts, surfaces, background and starter stickers update together.</p>
           </section>
 
           <section className={`rounded-xl border border-white/10 bg-zinc-900 p-4 ${activeTool === "skins" ? "block" : "hidden"}`}>
@@ -626,6 +600,8 @@ export default function ProfileStudio({
                 { id: "soft", title: "Soft", detail: "Warm layered surfaces", effect: "border border-white/20 shadow-lg" },
                 { id: "flat", title: "Flat", detail: "Minimal, transparent cards", effect: "border border-white/40" },
                 { id: "dimensional", title: "Dimension", detail: "Depth and 3D highlights", effect: "border border-white/40 shadow-2xl [transform:perspective(500px)_rotateY(-10deg)_rotateX(5deg)]" },
+                { id: "glow", title: "Glow", detail: "Luminous accent edges", effect: "border border-violet-300/50 shadow-[0_0_28px_rgba(168,85,247,.35)]" },
+                { id: "tilt", title: "Tilt", detail: "Playful angled surfaces", effect: "border border-white/30 shadow-xl [transform:perspective(500px)_rotateY(-9deg)_rotateX(5deg)]" },
               ] as const).map((skin) => (
                 <button key={skin.id} onClick={() => setTheme((current) => ({ ...current, skin: skin.id }))} aria-pressed={(theme.skin ?? "glass") === skin.id} className={`w-[190px] shrink-0 snap-start rounded-[24px] border p-3 text-left ${(theme.skin ?? "glass") === skin.id ? "border-violet-300 bg-violet-400/10 ring-2 ring-violet-400/40" : "border-white/10 bg-white/[0.03]"}`}>
                   <div className="flex h-28 items-center justify-center rounded-[18px] bg-gradient-to-br from-violet-500/30 via-zinc-800 to-fuchsia-500/20"><div className={`w-3/4 rounded-2xl p-4 ${skin.effect}`} style={{ backgroundColor: skin.id === "soft" ? theme.cardAlt : skin.id === "flat" ? "transparent" : undefined }}><div className="mb-3 h-2 w-3/4 rounded-full bg-white/80" /><div className="h-2 w-1/2 rounded-full bg-white/35" /><div className="mt-4 h-6 rounded-lg bg-white/20" /></div></div>

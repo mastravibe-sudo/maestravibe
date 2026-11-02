@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
 import type { CSSProperties, ReactNode } from "react";
 import type { ProfileBlock, ProfileRecord, ProfileSticker } from "@/lib/profile-schema";
+import { createDefaultProfileBlocks } from "@/lib/templates";
 import { createClient } from "@/lib/supabase/client";
 import { STICKERS } from "@/lib/stickers";
 import { typeInfo, type PostType } from "@/lib/posts";
@@ -282,16 +283,22 @@ export default function ProfileCanvas({
   // "background" shorthand ko backgroundImage + backgroundColor mein toda hai (React warning se bachne ke liye)
   const backgroundImage = profile.banner_url
     ? `linear-gradient(rgba(8, 10, 20, 0.52), rgba(8, 10, 20, 0.7)), url("${profile.banner_url}")`
-    : profile.theme.backgroundType === "gradient"
-      ? profile.theme.backgroundValue
-      : "none";
+    : profile.theme.backgroundType === "solid"
+      ? "none"
+      : profile.theme.backgroundType === "image" && /^https?:\/\//i.test(profile.theme.backgroundValue)
+        ? `url("${profile.theme.backgroundValue}")`
+        : profile.theme.backgroundValue;
+  const backgroundColor = !profile.banner_url && profile.theme.backgroundType === "solid"
+    ? profile.theme.backgroundValue
+    : profile.theme.page;
+  const renderedBlocks = blocks.length ? blocks : createDefaultProfileBlocks(profile.id);
 
   return (
     <div
       ref={stageRef}
-      className={`profile-canvas-stage ${editable ? "profile-canvas-editor" : ""} relative isolate mx-auto w-full overflow-hidden border border-white/15 ${editable ? "rounded-xl" : "rounded-[28px] shadow-2xl"}`}
+      className="profile-canvas-stage relative isolate mx-auto w-full overflow-hidden rounded-[28px] border border-white/15 shadow-2xl"
       style={{
-        backgroundColor: profile.theme.page,
+        backgroundColor,
         backgroundImage,
         backgroundSize: "cover",
         backgroundPosition: "center",
@@ -299,7 +306,6 @@ export default function ProfileCanvas({
         fontFamily: profile.theme.fontBody,
       }}
     >
-      {editable ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "linear-gradient(to right, rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,.08) 1px, transparent 1px)", backgroundSize: "5% 5%" }} /> : null}
       {(profile.theme.stickers ?? []).map((sticker) => {
         const stickerSource = sticker.type === "svg" ? STICKERS.find((item) => item.id === sticker.value)?.src : null;
         if (sticker.type === "svg" && !stickerSource) return null;
@@ -355,7 +361,7 @@ export default function ProfileCanvas({
           </Rnd>
         );
       })}
-      {blocks.map((block, index) => {
+      {renderedBlocks.map((block, index) => {
         const geometry = getBlockGeometry(block, index);
         if (block.style?.hidden === true && !block.locked && !editable) return null;
         const selected = block.id === selectedBlockId;

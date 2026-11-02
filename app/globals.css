@@ -8,17 +8,9 @@ body {
   height: min(1120px, max(820px, 112vh));
 }
 
-.profile-canvas-stage.profile-canvas-editor {
-  height: min(78vh, 900px);
-}
-
 @media (max-width: 639px) {
   .profile-canvas-stage {
     height: clamp(640px, 170vw, 760px);
-  }
-
-  .profile-canvas-stage.profile-canvas-editor {
-    height: min(43dvh, 430px);
   }
 }
 

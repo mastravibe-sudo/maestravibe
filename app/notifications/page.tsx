@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { Eye, Flame, Mail, MessageCircle, UserRound } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import PushSubscriptionControl from "@/components/PushSubscriptionControl";
 import { useCurrentUser } from "@/components/CurrentUserContext";
 
-type Notification = { id: string; type: "follow" | "vibe" | "comment" | "profile_view" | "message"; actor_id: string | null; post_id: string | null; created_at: string; read_at: string | null };
+type Notification = { id: string; type: "follow" | "vibe" | "comment" | "profile_view" | "message"; actor_id: string | null; post_id: string | null; message_id: string | null; created_at: string; read_at: string | null };
 type Person = { id: string; username: string; name: string | null; avatar_url: string | null };
 type Announcement = { id: string; title: string; body: string; published_at: string };
 
@@ -36,7 +37,7 @@ export default function NotificationsPage() {
     const [notificationResult, announcementResult] = await Promise.all([
       supabase
         .from("notifications")
-        .select("id,type,actor_id,post_id,created_at,read_at")
+        .select("id,type,actor_id,post_id,message_id,created_at,read_at")
         .eq("recipient_id", userId)
         .order("created_at", { ascending: false })
         .limit(60),
@@ -62,12 +63,30 @@ export default function NotificationsPage() {
       else setPeople(Object.fromEntries(((actors ?? []) as Person[]).map((person) => [person.id, person])));
     } else setPeople({});
     setLoading(false);
-  }, [currentUser.ready, currentUser.userId, supabase, userId]);
+  }, [currentUser.ready, supabase, userId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`notifications-page-${userId}`)
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "notifications",
+        filter: `recipient_id=eq.${userId}`,
+      }, () => void load())
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          setError("Live notification updates disconnected. Refresh to reconnect.");
+        }
+      });
+    return () => { void supabase.removeChannel(channel); };
+  }, [load, supabase, userId]);
 
   const markAllRead = async () => {
     if (!userId) return;
@@ -92,6 +111,44 @@ export default function NotificationsPage() {
     if (item.type === "message") return "sent you a message";
     return "viewed your profile";
   };
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayItems = items.filter((item) => new Date(item.created_at) >= todayStart);
+  const earlierItems = items.filter((item) => new Date(item.created_at) < todayStart);
+  const iconFor = (type: Notification["type"]) => {
+    if (type === "follow") return <UserRound className="h-5 w-5" aria-hidden="true" />;
+    if (type === "vibe") return <Flame className="h-5 w-5" aria-hidden="true" />;
+    if (type === "comment") return <MessageCircle className="h-5 w-5" aria-hidden="true" />;
+    if (type === "message") return <Mail className="h-5 w-5" aria-hidden="true" />;
+    return <Eye className="h-5 w-5" aria-hidden="true" />;
+  };
+  const targetFor = (item: Notification, actor?: Person) => item.type === "message"
+    ? "/inbox"
+    : item.post_id
+      ? `/p/${item.post_id}`
+      : item.type === "follow" && actor
+        ? `/${actor.username}`
+        : actor ? `/${actor.username}` : "/notifications";
+  const renderGroup = (title: string, groupItems: Notification[]) => groupItems.length ? (
+    <section key={title}>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">{title}</h2>
+      <div className="divide-y divide-white/10 border-y border-white/10">
+        {groupItems.map((item) => {
+          const actor = item.actor_id ? people[item.actor_id] : undefined;
+          return (
+            <article key={item.id} className={`flex items-center gap-3 px-3 py-4 ${item.read_at ? "" : "bg-violet-500/4"}`}>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-violet-500/25 to-pink-500/20 text-violet-200">{iconFor(item.type)}</span>
+              <Link href={targetFor(item, actor)} onClick={() => void markRead(item)} className="min-w-0 flex-1">
+                <p className="text-sm text-zinc-200"><span className="font-semibold text-white">{actor ? actor.name || `@${actor.username}` : "Someone"}</span> {notificationText(item)}.</p>
+                <p className="mt-1 text-xs text-zinc-500">{timeLabel(item.created_at)}</p>
+              </Link>
+              {!item.read_at ? <button onClick={() => void markRead(item)} className="shrink-0 text-[11px] text-zinc-500 hover:text-white">Mark read</button> : null}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  ) : null;
 
   return (
     <main className="mx-auto min-h-screen max-w-4xl px-4 py-8 pb-24 text-zinc-100 md:px-8">
@@ -123,31 +180,7 @@ export default function NotificationsPage() {
             </section>
           ) : null}
 
-          {items.length ? (
-            <section>
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Your activity</h2>
-              <div className="divide-y divide-white/10 border-y border-white/10">
-                {items.map((item) => {
-                  const actor = item.actor_id ? people[item.actor_id] : undefined;
-                  return (
-                    <article key={item.id} className={`flex items-start gap-3 py-4 ${item.read_at ? "" : "bg-violet-500/4"}`}>
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-lg">{item.type === "follow" ? "👤" : item.type === "vibe" ? "🔥" : item.type === "comment" ? "💬" : item.type === "message" ? "✉️" : "👀"}</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm text-zinc-200"><span className="font-semibold text-white">{actor ? actor.name || `@${actor.username}` : "Someone"}</span> {notificationText(item)}.</p>
-                        <p className="mt-1 text-xs text-zinc-500">{timeLabel(item.created_at)}</p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-2">
-                        {actor ? <Link href={`/${actor.username}`} className="text-xs text-violet-300 hover:text-violet-200">View profile</Link> : null}
-                        {item.type === "message" ? <Link href="/inbox" className="text-xs text-violet-300 hover:text-violet-200">Open inbox</Link> : null}
-                        {item.post_id ? <Link href={`/?post=${item.post_id}`} className="text-xs text-violet-300 hover:text-violet-200">View post</Link> : null}
-                        {!item.read_at ? <button onClick={() => void markRead(item)} className="text-[11px] text-zinc-500 hover:text-white">Mark read</button> : null}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
+          {items.length ? <div className="space-y-7">{renderGroup("Today", todayItems)}{renderGroup("Earlier", earlierItems)}</div> : null}
 
           {!announcements.length && !items.length && !error ? <p className="py-16 text-center text-sm text-zinc-500">You’re all caught up. New follows, messages, post activity, and app updates will show here.</p> : null}
         </div>

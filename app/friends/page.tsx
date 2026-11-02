@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { requestActivityPush } from "@/lib/notifications/client";
 
 type Person = { id: string; username: string; name: string | null; avatar_url: string | null };
 type FriendTab = "following" | "followers";
@@ -66,7 +67,13 @@ export default function FriendsPage() {
       ? await supabase.from("follows").delete().eq("follower_id", userId).eq("followed_id", person.id)
       : await supabase.from("follows").insert({ follower_id: userId, followed_id: person.id });
     if (result.error) setError(result.error.message);
-    else await load();
+    else {
+      if (!currentlyFollowing) {
+        const pushError = await requestActivityPush({ type: "follow", profileId: person.id });
+        if (pushError) setError(pushError);
+      }
+      await load();
+    }
     setBusyId(null);
   };
 

@@ -2,7 +2,7 @@
 
 import type { PostType } from "@/lib/posts";
 
-export type Media = { type: "image" | "video"; url: string; width?: number; height?: number; bytes?: number };
+export type Media = { type: "image" | "video"; url: string; poster?: string; thumbnail?: string; width?: number; height?: number; bytes?: number };
 export type Person = { username: string; name: string | null; avatar_url: string | null };
 export type CommentRow = { id: string; body: string; pinned: boolean; created_at: string; user_id: string; profiles: Person };
 export type Orig = { id: string; title: string | null; body: string; image_url: string | null; media: Media[] | null; profiles: Person };
