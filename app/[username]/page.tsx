@@ -5,8 +5,10 @@ import ProfileBuilder from "@/components/ProfileBuilder";
 import ProfileView from "@/components/ProfileView";
 import { publicClient } from "@/lib/supabase/public";
 import { createClient } from "@/lib/supabase/server";
-import { profileRecordSchema } from "@/lib/profile-schema";
+import { normalizeProfileRecord } from "@/lib/profile-schema";
 import { SITE_URL } from "@/lib/site";
+
+export const dynamic = "force-dynamic";
 
 type PublicProfileSeo = {
   id: string;
@@ -100,16 +102,16 @@ export default async function ProfilePage({
       : Promise.resolve({ data: null }),
     supabase.from("follows").select("follower_id", { count: "exact", head: true }).eq("followed_id", profileRow.id),
     supabase.from("follows").select("followed_id", { count: "exact", head: true }).eq("follower_id", profileRow.id),
-    isOwner && edit === "1"
-      ? supabase
-          .from("profile_blocks")
-          .select("id,profile_id,type,position,width,config,style,visibility,locked,created_at,updated_at")
-          .eq("profile_id", profileRow.id)
-          .order("position")
-      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("profile_blocks")
+      .select("id,profile_id,type,position,width,config,style,visibility,locked,created_at,updated_at")
+      .eq("profile_id", profileRow.id)
+      .order("position"),
   ]);
-  if (blocksResult.error) notFound();
-  const profile = profileRecordSchema.parse({
+  if (blocksResult.error) {
+    throw new Error(`Could not load profile sections: ${blocksResult.error.message}`);
+  }
+  const profile = normalizeProfileRecord({
     ...profileRow,
     blocks: blocksResult.data ?? [],
   });

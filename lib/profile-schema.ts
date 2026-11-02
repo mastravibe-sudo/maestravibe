@@ -68,6 +68,32 @@ export const profileThemeSchema = z.object({
   sectionSpacing: z.number().int().min(8).max(40).default(24),
 });
 
+export type ProfileTheme = z.infer<typeof profileThemeSchema>;
+
+export const DEFAULT_PROFILE_THEME: ProfileTheme = profileThemeSchema.parse({
+  page: "#09090f",
+  pageAlt: "#17172a",
+  card: "rgba(17, 24, 39, 0.62)",
+  cardAlt: "rgba(255,255,255,0.08)",
+  text: "#f5f7ff",
+  textMuted: "#c4c9dc",
+  accent: "#8b5cf6",
+  accentSoft: "rgba(139,92,246,0.18)",
+  border: "rgba(255,255,255,0.12)",
+  buttonText: "#ffffff",
+  backgroundType: "gradient",
+  backgroundValue: "linear-gradient(135deg, #0f172a 0%, #1d4ed8 35%, #7c3aed 100%)",
+  radius: 24,
+  shadow: "0 20px 60px rgba(96, 76, 175, 0.28)",
+  fontHeading: "Inter",
+  fontBody: "Inter",
+  skin: "glass",
+  layout: "canvas",
+  stickers: [],
+  buttonStyle: "filled",
+  sectionSpacing: 24,
+});
+
 export const profileBlockSchema = z.object({
   id: z.string().min(1),
   profile_id: z.string().uuid().optional(),
@@ -107,29 +133,7 @@ export const profileRecordSchema = z.object({
   avatar_url: z.string().url().nullable().optional(),
   banner_url: z.string().url().nullable().optional(),
   template: templateIdSchema.default("aurora"),
-  theme: profileThemeSchema.default({
-    page: "#09090f",
-    pageAlt: "#17172a",
-    card: "rgba(17, 24, 39, 0.62)",
-    cardAlt: "rgba(255,255,255,0.08)",
-    text: "#f5f7ff",
-    textMuted: "#c4c9dc",
-    accent: "#8b5cf6",
-    accentSoft: "rgba(139,92,246,0.18)",
-    border: "rgba(255,255,255,0.12)",
-    buttonText: "#ffffff",
-    backgroundType: "gradient",
-    backgroundValue: "linear-gradient(135deg, #0f172a 0%, #1d4ed8 35%, #7c3aed 100%)",
-    radius: 24,
-    shadow: "0 20px 60px rgba(96, 76, 175, 0.28)",
-    fontHeading: "Inter",
-    fontBody: "Inter",
-    skin: "glass",
-    layout: "canvas",
-    stickers: [],
-    buttonStyle: "filled",
-    sectionSpacing: 24,
-  }),
+  theme: profileThemeSchema.default(DEFAULT_PROFILE_THEME),
   visibility: visibilitySchema.default("public"),
   discoverable: z.boolean().default(true),
   verified: z.boolean().default(false).optional(),
@@ -138,7 +142,71 @@ export const profileRecordSchema = z.object({
   updated_at: z.string().optional(),
 });
 
-export type ProfileTheme = z.infer<typeof profileThemeSchema>;
 export type ProfileSticker = z.infer<typeof profileStickerSchema>;
 export type ProfileBlock = z.infer<typeof profileBlockSchema>;
 export type ProfileRecord = z.infer<typeof profileRecordSchema>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function withFallback<T extends z.ZodType>(
+  schema: T,
+  value: unknown,
+  fallback: z.output<T>,
+): z.output<T> {
+  const parsed = schema.safeParse(value);
+  return parsed.success ? parsed.data : fallback;
+}
+
+export function normalizeProfileRecord(value: unknown): ProfileRecord {
+  if (!isRecord(value)) return profileRecordSchema.parse(value);
+
+  const rawTheme = isRecord(value.theme) ? value.theme : {};
+  const stickers = Array.isArray(rawTheme.stickers)
+    ? rawTheme.stickers.flatMap((sticker) => {
+        const parsed = profileStickerSchema.safeParse(sticker);
+        return parsed.success ? [parsed.data] : [];
+      }).slice(0, 30)
+    : DEFAULT_PROFILE_THEME.stickers;
+  const theme: ProfileTheme = {
+    page: withFallback(hexColorSchema, rawTheme.page, DEFAULT_PROFILE_THEME.page),
+    pageAlt: withFallback(hexColorSchema, rawTheme.pageAlt, DEFAULT_PROFILE_THEME.pageAlt),
+    card: withFallback(z.string(), rawTheme.card, DEFAULT_PROFILE_THEME.card),
+    cardAlt: withFallback(z.string(), rawTheme.cardAlt, DEFAULT_PROFILE_THEME.cardAlt),
+    text: withFallback(hexColorSchema, rawTheme.text, DEFAULT_PROFILE_THEME.text),
+    textMuted: withFallback(hexColorSchema, rawTheme.textMuted, DEFAULT_PROFILE_THEME.textMuted),
+    accent: withFallback(hexColorSchema, rawTheme.accent, DEFAULT_PROFILE_THEME.accent),
+    accentSoft: withFallback(z.string(), rawTheme.accentSoft, DEFAULT_PROFILE_THEME.accentSoft),
+    border: withFallback(z.string(), rawTheme.border, DEFAULT_PROFILE_THEME.border),
+    buttonText: withFallback(hexColorSchema, rawTheme.buttonText, DEFAULT_PROFILE_THEME.buttonText),
+    backgroundType: withFallback(profileThemeSchema.shape.backgroundType, rawTheme.backgroundType, DEFAULT_PROFILE_THEME.backgroundType),
+    backgroundValue: withFallback(profileThemeSchema.shape.backgroundValue, rawTheme.backgroundValue, DEFAULT_PROFILE_THEME.backgroundValue),
+    radius: withFallback(profileThemeSchema.shape.radius, rawTheme.radius, DEFAULT_PROFILE_THEME.radius),
+    shadow: withFallback(profileThemeSchema.shape.shadow, rawTheme.shadow, DEFAULT_PROFILE_THEME.shadow),
+    fontHeading: withFallback(profileThemeSchema.shape.fontHeading, rawTheme.fontHeading, DEFAULT_PROFILE_THEME.fontHeading),
+    fontBody: withFallback(profileThemeSchema.shape.fontBody, rawTheme.fontBody, DEFAULT_PROFILE_THEME.fontBody),
+    skin: withFallback(profileThemeSchema.shape.skin, rawTheme.skin, DEFAULT_PROFILE_THEME.skin),
+    layout: withFallback(profileThemeSchema.shape.layout, rawTheme.layout, DEFAULT_PROFILE_THEME.layout),
+    stickers,
+    buttonStyle: withFallback(profileThemeSchema.shape.buttonStyle, rawTheme.buttonStyle, DEFAULT_PROFILE_THEME.buttonStyle),
+    sectionSpacing: withFallback(profileThemeSchema.shape.sectionSpacing, rawTheme.sectionSpacing, DEFAULT_PROFILE_THEME.sectionSpacing),
+  };
+  const blocks = Array.isArray(value.blocks)
+    ? value.blocks.map((block) => profileBlockSchema.parse(block))
+    : [];
+
+  return profileRecordSchema.parse({
+    ...value,
+    name: typeof value.name === "string" ? value.name : "",
+    bio: typeof value.bio === "string" ? value.bio : "",
+    avatar_url: withFallback(z.string().url().nullable().optional(), value.avatar_url, null),
+    banner_url: withFallback(z.string().url().nullable().optional(), value.banner_url, null),
+    template: withFallback(templateIdSchema, value.template, "aurora"),
+    theme,
+    visibility: withFallback(visibilitySchema, value.visibility, "public"),
+    discoverable: typeof value.discoverable === "boolean" ? value.discoverable : true,
+    verified: typeof value.verified === "boolean" ? value.verified : false,
+    blocks,
+  });
+}

@@ -8,9 +8,9 @@ import EmojiPicker, { Theme as EmojiTheme, type EmojiClickData } from "emoji-pic
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentUser } from "@/components/CurrentUserContext";
 import { generateAiSuggestions } from "@/lib/ai/generate";
-import type { ProfileBlock, ProfileRecord, ProfileSticker, ProfileTheme } from "@/lib/profile-schema";
+import { normalizeProfileRecord, type ProfileBlock, type ProfileRecord, type ProfileSticker, type ProfileTheme } from "@/lib/profile-schema";
 import { createDefaultBlockConfig, createDefaultProfileBlocks, templateCatalog, type TemplateId } from "@/lib/templates";
-import ProfileCanvas, { getBlockGeometry, type BlockGeometry } from "@/components/ProfileCanvas";
+import ProfileRender, { getBlockGeometry, type BlockGeometry } from "@/components/ProfileRender";
 import ProfileView from "@/components/ProfileView";
 import { HeaderStylePicker } from "@/components/profile/HeaderStyles";
 import { StatsStylePicker } from "@/components/profile/StatsStyles";
@@ -128,7 +128,7 @@ export default function ProfileStudio({
   const [success, setSuccess] = useState<string | null>(null);
 
   const selectedBlock = blocks.find((block) => block.id === selectedId) ?? null;
-  const previewProfile = { ...profile, ...identity, theme } as ProfileRecord;
+  const previewProfile = normalizeProfileRecord({ ...profile, ...identity, theme, blocks });
 
   const generateBio = async () => {
     setGeneratingBio(true);
@@ -555,9 +555,8 @@ export default function ProfileStudio({
           <div className="mb-3 flex items-center justify-between px-1 text-xs text-zinc-500">
             <span>Canvas</span><span>{blocks.filter((block) => block.style.hidden !== true).length} visible sections</span>
           </div>
-          <ProfileCanvas
+          <ProfileRender
             profile={previewProfile}
-            blocks={blocks}
             stats={stats}
             editable
             selectedBlockId={selectedId}

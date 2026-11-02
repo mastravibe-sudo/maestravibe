@@ -1,4 +1,3 @@
-// path: maestra-vibe/components/ProfileCanvas.tsx  (poori file replace karo)
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -217,9 +216,8 @@ function BlockContent({
   );
 }
 
-export default function ProfileCanvas({
+export default function ProfileRender({
   profile,
-  blocks,
   stats,
   editable = false,
   selectedBlockId,
@@ -231,7 +229,6 @@ export default function ProfileCanvas({
   action,
 }: {
   profile: ProfileRecord;
-  blocks: ProfileBlock[];
   stats: { followers: number; following: number };
   editable?: boolean;
   selectedBlockId?: string | null;
@@ -291,7 +288,7 @@ export default function ProfileCanvas({
   const backgroundColor = !profile.banner_url && profile.theme.backgroundType === "solid"
     ? profile.theme.backgroundValue
     : profile.theme.page;
-  const renderedBlocks = blocks.length ? blocks : createDefaultProfileBlocks(profile.id);
+  const renderedBlocks = profile.blocks.length ? profile.blocks : createDefaultProfileBlocks(profile.id);
 
   return (
     <div

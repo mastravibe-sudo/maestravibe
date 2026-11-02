@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { ProfileRecord } from "@/lib/profile-schema";
 import { requestActivityPush } from "@/lib/notifications/client";
-import ProfileCanvas from "@/components/ProfileCanvas";
+import ProfileRender from "@/components/ProfileRender";
 import ProfilePostGrid from "@/components/ProfilePostGrid";
 
 export default function ProfileView({
@@ -108,9 +108,8 @@ export default function ProfileView({
         <section id="profile-page" aria-label="Profile" className="h-full w-screen shrink-0 snap-start overflow-y-auto overscroll-y-contain bg-[#07061a]">
           <div className="mx-auto w-full max-w-6xl px-3 py-5 pb-20 sm:px-6 sm:py-8">
             {followError ? <p role="alert" className="mb-3 rounded-lg border border-red-400/20 bg-red-950/30 p-3 text-sm text-red-200">{followError}</p> : null}
-            <ProfileCanvas
+            <ProfileRender
               profile={profile}
-              blocks={profile.blocks}
               stats={{ followers: followerCount, following: stats.following }}
               action={action}
             />
