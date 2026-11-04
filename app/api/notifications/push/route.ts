@@ -52,6 +52,7 @@ export async function POST(request: Request) {
   }
 
   let notificationId: string | null = null;
+  let messageConversationId: string | null = null;
   if (activity.type === "follow") {
     if (activity.profileId === user.id) return Response.json({ sent: 0, skipped: true });
 
@@ -116,6 +117,7 @@ export async function POST(request: Request) {
       .maybeSingle();
     if (messageError) return Response.json({ error: "Could not verify the sent message." }, { status: 500 });
     if (!message) return Response.json({ sent: 0, skipped: true });
+    messageConversationId = message.conversation_id;
 
     const { data: conversation, error: conversationError } = await admin
       .from("conversations")
@@ -207,7 +209,9 @@ export async function POST(request: Request) {
         : notification.type === "follow" && actor?.username
           ? `/${actor.username}`
           : "/notifications",
-    tag: `activity-${notification.id}`,
+    tag: messageConversationId
+      ? `conversation-${messageConversationId}`
+      : `activity-${notification.id}`,
   };
   if (subscriptions?.length && (
     !process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||

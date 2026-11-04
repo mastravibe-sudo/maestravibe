@@ -1,12 +1,7 @@
 "use client";
 
 import { useState } from "react";
-
-function applicationServerKey(base64Key: string) {
-  const padded = base64Key + "=".repeat((4 - base64Key.length % 4) % 4);
-  const binary = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0)) as BufferSource;
-}
+import { subscribeToWebPush } from "@/lib/push/subscribe";
 
 export default function PushSubscriptionControl({ enabled }: { enabled: boolean }) {
   const [busy, setBusy] = useState(false);
@@ -42,27 +37,9 @@ export default function PushSubscriptionControl({ enabled }: { enabled: boolean 
         return;
       }
 
-      const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-      if (!publicKey) throw new Error("Push is not configured yet. Add the VAPID public key and reload.");
-
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") throw new Error("Notifications are blocked. Allow them in your browser or device settings.");
-
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: applicationServerKey(publicKey),
-      });
-      const response = await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(subscription.toJSON()),
-      });
-      const result = await response.json() as { error?: string };
-      if (!response.ok) {
-        await subscription.unsubscribe();
-        throw new Error(result.error?.includes("push_subscriptions")
-          ? "Run the Web Push SQL migration before enabling notifications."
-          : result.error || "Could not save this device subscription.");
+      const result = await subscribeToWebPush();
+      if (result.permission !== "granted") {
+        throw new Error("Notifications are blocked. Allow them in your browser or device settings.");
       }
       setActiveHere(true);
       setMessage("This device will receive Maestra Vibe updates.");

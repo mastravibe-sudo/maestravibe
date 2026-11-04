@@ -6,8 +6,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Bell, Flame, House, Mail, MessageCircle, MessageSquare, ShoppingBag, User, Users, type LucideIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useUnreadCounts } from "@/lib/useUnreadCounts";
 import AuthBox from "@/components/AuthBox";
 import { CurrentUserContext, type CurrentUserProfile } from "@/components/CurrentUserContext";
+import PermissionOnboarding from "@/components/PermissionOnboarding";
 
 // Apni public folder wali logo image ka naam yahan likho, jaise "/logo.png"
 const LOGO_SRC = "/maestra-vibe-logo.svg";
@@ -18,6 +20,9 @@ type NotificationCounts = { vibe: number; comment: number; follow: number; messa
 type ActivityToast = { id: string; userId: string; message: string; href: string };
 const emptyCounts: NotificationCounts = { vibe: 0, comment: 0, follow: 0, message: 0, total: 0 };
 const formatCount = (count: number) => count > 99 ? "99+" : String(count);
+const CountBadge = ({ count }: { count: number }) => count > 0
+  ? <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-linear-to-r from-violet-500 to-pink-500 px-1 text-[9px] font-bold text-white">{formatCount(count)}</span>
+  : null;
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -26,47 +31,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<CurrentUserProfile | null>(null);
   const [ready, setReady] = useState(false);
   const [profileReady, setProfileReady] = useState(false);
-  const [notificationCounts, setNotificationCounts] = useState(emptyCounts);
   const [activityToast, setActivityToast] = useState<ActivityToast | null>(null);
   const loadedUser = useRef(false);
   const reservedRoutes = new Set(["login", "notifications", "friends", "inbox", "market", "search", "admin", "account-access", "p"]);
   const routeParts = pathname.split("/").filter(Boolean);
   const standalone = pathname.startsWith("/admin") || (routeParts.length === 1 && !reservedRoutes.has(routeParts[0]));
+  const { notificationCounts, unreadMessages } = useUnreadCounts(userId);
 
   useEffect(() => {
     if (!userId || standalone) return;
 
     let active = true;
     const supabase = createClient();
-    const loadCounts = async () => {
-      const unreadQuery = (type?: NotificationKind) => {
-        let query = supabase.from("notifications").select("id", { count: "exact", head: true }).eq("recipient_id", userId).is("read_at", null);
-        if (type) query = query.eq("type", type);
-        return query;
-      };
-      const [all, vibes, comments, follows, messages] = await Promise.all([
-        unreadQuery(),
-        unreadQuery("vibe"),
-        unreadQuery("comment"),
-        unreadQuery("follow"),
-        unreadQuery("message"),
-      ]);
-      const countError = all.error ?? vibes.error ?? comments.error ?? follows.error ?? messages.error;
-      if (countError) {
-        console.error("Could not load notification counts.", countError.message);
-        return;
-      }
-      if (!active) return;
-      setNotificationCounts({
-        vibe: vibes.count ?? 0,
-        comment: comments.count ?? 0,
-        follow: follows.count ?? 0,
-        message: messages.count ?? 0,
-        total: all.count ?? 0,
-      });
-    };
-
-    void loadCounts();
     const channel = supabase
       .channel(`activity-notifications-${userId}`)
       .on("postgres_changes", {
@@ -115,7 +91,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             });
           });
         }
-        void loadCounts();
       })
       .subscribe((status) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
@@ -136,6 +111,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [activityToast]);
 
   const visibleNotificationCounts = userId && !standalone ? notificationCounts : emptyCounts;
+  const visibleUnreadMessages = userId && !standalone ? unreadMessages : 0;
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     void navigator.serviceWorker.register("/sw.js").catch(() => undefined);
@@ -198,7 +174,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <img src={LOGO_SRC} alt="" className="h-10 w-10 rounded-lg object-cover" />
             <span className={`bg-linear-to-r ${lightHome ? "from-violet-600 via-fuchsia-500 to-blue-500" : "from-violet-400 to-pink-400"} bg-clip-text text-xl font-extrabold text-transparent`}>Maestra Vibe</span>
           </Link>
-          {nav.map(({ href, label, Icon }) => href === "/notifications" ? (
+          {nav.map(({ href, label, Icon }) => href === "/inbox" ? (
+            <Link key={label} href={href} prefetch={true} aria-label={`Inbox${visibleUnreadMessages ? `, ${visibleUnreadMessages} unread messages` : ""}`} className={`flex items-center gap-3 rounded-xl px-4 py-3 text-base transition ${lightHome ? "hover:bg-slate-50" : "hover:bg-white/10"} ${pathname === href ? (lightHome ? "bg-violet-50 font-semibold text-violet-700" : "bg-white/10 font-semibold") : lightHome ? "text-slate-500" : "text-zinc-400"}`}>
+              <span className="relative"><Icon className="h-5 w-5 shrink-0" aria-hidden="true" /><CountBadge count={visibleUnreadMessages} /></span>
+              {label}
+            </Link>
+          ) : href === "/notifications" ? (
             <div key={label} className="group relative">
               <Link href={href} prefetch={true} aria-label={`Notifications${visibleNotificationCounts.total ? `, ${visibleNotificationCounts.total} unread` : ""}`} className={`flex items-center gap-3 rounded-xl px-4 py-3 text-base transition ${lightHome ? "hover:bg-slate-50" : "hover:bg-white/10"} ${pathname === href ? (lightHome ? "bg-violet-50 font-semibold text-violet-700" : "bg-white/10 font-semibold") : lightHome ? "text-slate-500" : "text-zinc-400"}`}>
                 <span className="relative"><Icon className="h-5 w-5 shrink-0" aria-hidden="true" />{visibleNotificationCounts.total ? <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-linear-to-r from-violet-500 to-pink-500 px-1 text-[9px] font-bold text-white">{formatCount(visibleNotificationCounts.total)}</span> : null}</span>
@@ -236,7 +217,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile bottom nav */}
       <nav className={`fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t px-1 py-2 backdrop-blur md:hidden ${lightHome ? "border-slate-200 bg-white/95" : "border-white/10 bg-[#0f0b24]/95"}`}>
-        {nav.map(({ href, label, Icon }) => href === "/notifications" ? (
+        {nav.map(({ href, label, Icon }) => href === "/inbox" ? (
+          <Link key={label} href={href} prefetch={true} aria-label={`Inbox${visibleUnreadMessages ? `, ${visibleUnreadMessages} unread messages` : ""}`} className={`flex min-w-0 flex-col items-center gap-0.5 text-[10px] ${pathname === href ? (lightHome ? "font-semibold text-violet-700" : "text-white") : lightHome ? "text-slate-500" : "text-zinc-500"}`}>
+            <span className="relative"><Icon className="h-5 w-5" aria-hidden="true" /><CountBadge count={visibleUnreadMessages} /></span>
+            <span className="max-w-full truncate">{label}</span>
+          </Link>
+        ) : href === "/notifications" ? (
           <div key={label} className="group relative flex min-w-0 justify-center">
             <Link href={href} prefetch={true} aria-label={`Notifications${visibleNotificationCounts.total ? `, ${visibleNotificationCounts.total} unread` : ""}`} className={`flex min-w-0 flex-col items-center gap-0.5 text-[10px] ${pathname === href ? (lightHome ? "font-semibold text-violet-700" : "text-white") : lightHome ? "text-slate-500" : "text-zinc-500"}`}>
               <span className="relative"><Icon className="h-5 w-5" aria-hidden="true" />{visibleNotificationCounts.total ? <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-linear-to-r from-violet-500 to-pink-500 px-1 text-[9px] font-bold text-white">{formatCount(visibleNotificationCounts.total)}</span> : null}</span>
@@ -276,6 +262,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       ) : null}
       </>}
+      <PermissionOnboarding userId={userId} ready={ready} />
     </CurrentUserContext.Provider>
   );
 }
