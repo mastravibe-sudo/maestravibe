@@ -7,10 +7,6 @@ type VideoRankOptions = {
 
 type FeedKind = "video" | "image" | "text";
 
-function videoId(row: Row): string {
-  return row.original?.id ?? row.id;
-}
-
 function feedKind(row: Row): FeedKind {
   const media = mediaOf(row.original ?? row)[0];
   return media?.type ?? "text";
@@ -19,40 +15,18 @@ function feedKind(row: Row): FeedKind {
 export function rankVideos(rows: Row[], { followedIds, watchedIds }: VideoRankOptions): Row[] {
   const followed = new Set(followedIds);
   const watched = new Set(watchedIds);
-  const seen = new Set<string>();
   const now = Date.now();
-  const remaining = rows
-    .filter((row) => {
-      const id = videoId(row);
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    })
-    .map((row) => {
+  return rows
+    .map((row, index) => {
       const ageDays = Math.max(0, now - new Date(row.created_at).getTime()) / 86_400_000;
       const recency = 5 * Math.exp(-ageDays / 7);
       const engagement = Math.log1p(row.vibes.length) * 0.6 + Math.log1p(row.comments.length) * 0.9;
       const followedBoost = followed.has(row.user_id) ? 2 : 0;
-      const unseenBoost = watched.has(videoId(row)) ? 0 : 1000;
-      return { row, score: unseenBoost + recency + engagement + followedBoost };
+      const unseenBoost = watched.has(row.original?.id ?? row.id) ? 0 : 1000;
+      return { row, index, score: unseenBoost + recency + engagement + followedBoost };
     })
-    .sort((a, b) => b.score - a.score);
-
-  const ranked: Row[] = [];
-  let lastAuthor: string | null = null;
-  let authorStreak = 0;
-
-  while (remaining.length) {
-    const nextIndex = remaining.findIndex(({ row }) => authorStreak < 2 || row.user_id !== lastAuthor);
-    if (nextIndex < 0) break;
-
-    const [{ row }] = remaining.splice(nextIndex, 1);
-    ranked.push(row);
-    authorStreak = row.user_id === lastAuthor ? authorStreak + 1 : 1;
-    lastAuthor = row.user_id;
-  }
-
-  return ranked;
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ row }) => row);
 }
 
 export function diversifyFeed(rows: Row[]): Row[] {

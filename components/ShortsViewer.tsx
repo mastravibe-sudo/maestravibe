@@ -8,10 +8,11 @@ import { Avatar, mediaOf, type Row } from "@/components/postUtils";
 
 const rail = "flex h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-full bg-black/40 px-2 text-xs text-white backdrop-blur active:scale-95";
 
-export default function ShortsViewer({ rows, me, initialId, onClose, onVibe, onOpen, onShare, onWatch, onNearEnd, loadingMore, hasMore, inline = false, onFollow, onSave }: {
+export default function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOpen, onShare, onWatch, onNearEnd, loadingMore, hasMore, inline = false, onFollow, onSave }: {
   rows: Row[];
   me: string | null;
   initialId?: string | null;
+  initialIndex?: number;
   onClose: () => void;
   onVibe: (row: Row) => void;
   onOpen: (row: Row) => void;
@@ -26,7 +27,7 @@ export default function ShortsViewer({ rows, me, initialId, onClose, onVibe, onO
 }) {
   useOverlayHistory(onClose, !inline);
   const [muted, setMuted] = useState(true);
-  const [activeIndex, setActiveIndex] = useState(() => Math.max(0, rows.findIndex((row) => row.id === initialId)));
+  const [activeIndex, setActiveIndex] = useState(() => Math.max(0, initialIndex ?? rows.findIndex((row) => row.id === initialId)));
   const [pausedId, setPausedId] = useState<string | null>(null);
   const playableRows = useMemo(() => {
     if (!rows.length) return [];
@@ -111,12 +112,12 @@ export default function ShortsViewer({ rows, me, initialId, onClose, onVibe, onO
 
   useEffect(() => {
     if (!playableRows.length) {
-      if (hasMore) nearEndRef.current?.();
+      if (hasMore && !loadingMore) nearEndRef.current?.();
       return;
     }
 
-    const requestedIndex = !initialIdApplied.current && initialId
-      ? playableRows.findIndex(({ row }) => row.id === initialId)
+    const requestedIndex = !initialIdApplied.current
+      ? initialIndex ?? (initialId ? playableRows.findIndex(({ row }) => row.id === initialId) : -1)
       : -1;
     const nextIndex = requestedIndex >= 0 ? requestedIndex : Math.min(activeIndexRef.current, playableRows.length - 1);
     initialIdApplied.current = true;
@@ -124,7 +125,7 @@ export default function ShortsViewer({ rows, me, initialId, onClose, onVibe, onO
     setActiveIndex(nextIndex);
     const element = container.current;
     if (element) element.scrollTo({ top: nextIndex * element.clientHeight, behavior: "auto" });
-  }, [hasMore, initialId, playableRows]);
+  }, [hasMore, initialId, initialIndex, loadingMore, playableRows]);
 
   useEffect(() => {
     const activeVideo = videos.current[activeIndex];
@@ -143,8 +144,8 @@ export default function ShortsViewer({ rows, me, initialId, onClose, onVibe, onO
   }, [activeIndex, playableRows]);
 
   useEffect(() => {
-    if (activeIndex >= playableRows.length - 3 && hasMore) nearEndRef.current?.();
-  }, [activeIndex, hasMore, playableRows.length]);
+    if (activeIndex >= Math.max(0, rows.length - 3) && hasMore && !loadingMore) nearEndRef.current?.();
+  }, [activeIndex, hasMore, loadingMore, playableRows.length, rows.length]);
 
   useEffect(() => {
     const element = container.current;

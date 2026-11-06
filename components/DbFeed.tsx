@@ -25,6 +25,7 @@ const BRAND = "bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500";
 const card = "overflow-hidden rounded-xl border border-white/[0.06] bg-[#110f2e]";
 const act = "flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 text-base text-[#c9c4e8] hover:bg-white/10 active:scale-95 disabled:opacity-40";
 const TABS = ["For You", "Following"] as const;
+const POSTS_PER_PAGE = 20;
 const isShortMedia = (r: Row) => {
   const media = mediaOf(r.original ?? r)[0];
   return media?.type === "video" || media?.type === "image";
@@ -41,8 +42,8 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   const [tab, setTab] = useState<(typeof TABS)[number]>("For You");
   const [loading, setLoading] = useState(true);
   const [shorts, setShorts] = useState(false);
-  const [shortsRows, setShortsRows] = useState<Row[]>([]);
   const [initialShortId, setInitialShortId] = useState<string | null>(null);
+  const [initialShortIndex, setInitialShortIndex] = useState(0);
   const [watched, setWatched] = useState<{ key: string; ids: string[] }>({ key: "", ids: [] });
   const [openId, setOpenId] = useState<string | null>(null);
   const [openComments, setOpenComments] = useState(false);
@@ -51,10 +52,10 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   const [error, setError] = useState("");
   const [products, setProducts] = useState<MarketProduct[]>([]);
   const [marketError, setMarketError] = useState("");
-  const [shortsLoadingMore, setShortsLoadingMore] = useState(false);
-  const [shortsHasMore, setShortsHasMore] = useState(true);
-  const shortsPage = useRef(40);
-  const loadingShortsPage = useRef(false);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const postsPage = useRef(0);
+  const loadingPostsPage = useRef(false);
   const deepLinked = useRef(false);
   const watchedKey = `mv-short-watched:${me ?? "guest"}`;
 
@@ -67,7 +68,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   const load = useCallback(async () => {
     const [authResult, postsResult] = await Promise.all([
       supabase.auth.getUser(),
-      supabase.from("posts").select(SELECT).order("created_at", { ascending: false }).range(0, 39),
+      supabase.from("posts").select(SELECT).order("created_at", { ascending: false }).range(0, POSTS_PER_PAGE - 1),
     ]);
     const user = authResult.data.user;
     setMe(user?.id ?? null);
@@ -95,8 +96,8 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
       return;
     }
     const list = (data as unknown as Row[]) ?? [];
-    shortsPage.current = list.length;
-    setShortsHasMore(list.length === 40);
+    postsPage.current = list.length;
+    setHasMorePosts(list.length === POSTS_PER_PAGE);
     const ids = [...new Set(list.map((r) => r.repost_of).filter((x): x is string => !!x))];
     if (ids.length) {
       const { data: originals } = await supabase.from("posts").select(ORIG).in("id", ids);
@@ -216,6 +217,12 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     () => rankVideos(notHidden.filter(isShortMedia), { followedIds: following, watchedIds }),
     [notHidden, following, watchedIds]
   );
+  const shortsViewerRows = useMemo(
+    () => tab === "Following"
+      ? rankVideos(visible.filter(isShortMedia), { followedIds: following, watchedIds })
+      : rankedShorts,
+    [following, rankedShorts, tab, visible, watchedIds],
+  );
   const shortsAt = useMemo(() => {
     const placements = new Map<number, Row[]>();
     const used = new Set<string>();
@@ -237,24 +244,24 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     return placements;
   }, [feedRows.length, products]);
   const openShorts = (initialId: string | null = null) => {
-    setShortsRows(rankedShorts);
+    setInitialShortIndex(initialId ? shortsViewerRows.findIndex((row) => row.id === initialId) : 0);
     setInitialShortId(initialId);
     setShorts(true);
   };
-  const loadMoreShorts = useCallback(async () => {
-    if (loadingShortsPage.current || !shortsHasMore) return;
-    loadingShortsPage.current = true;
-    setShortsLoadingMore(true);
+  const loadMorePosts = useCallback(async () => {
+    if (loadingPostsPage.current || !hasMorePosts) return;
+    loadingPostsPage.current = true;
+    setLoadingMorePosts(true);
     try {
-      const start = shortsPage.current;
+      const start = postsPage.current;
       const { data, error: pageError } = await supabase.from("posts")
         .select(SELECT)
         .order("created_at", { ascending: false })
-        .range(start, start + 39);
+        .range(start, start + POSTS_PER_PAGE - 1);
       if (pageError) throw pageError;
       const page = (data ?? []) as unknown as Row[];
-      shortsPage.current += page.length;
-      setShortsHasMore(page.length === 40);
+      postsPage.current += page.length;
+      setHasMorePosts(page.length === POSTS_PER_PAGE);
 
       const originalIds = [...new Set(page.map((row) => row.repost_of).filter((id): id is string => !!id))];
       if (originalIds.length) {
@@ -268,22 +275,15 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
       const newRows = page.filter((row) => !existingIds.has(row.id));
       if (newRows.length) {
         setRows((current) => [...current, ...newRows]);
-        const newVideos = newRows.filter(isShortMedia);
-        if (newVideos.length) {
-          setShortsRows((current) => {
-            const ids = new Set(current.map((row) => row.id));
-            return [...current, ...newVideos.filter((row) => !ids.has(row.id))];
-          });
-        }
       }
     } catch (pageError) {
       fail(pageError);
-      setShortsHasMore(false);
+      setHasMorePosts(false);
     } finally {
-      loadingShortsPage.current = false;
-      setShortsLoadingMore(false);
+      loadingPostsPage.current = false;
+      setLoadingMorePosts(false);
     }
-  }, [rows, shortsHasMore, supabase]);
+  }, [hasMorePosts, rows, supabase]);
   const markShortWatched = (id: string) => {
     if (!id) return;
     const current = watched.key === watchedKey ? watched.ids : [];
@@ -309,6 +309,18 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   };
   const openComposer = () => window.dispatchEvent(new Event("mv:open-composer"));
   const open = rows.find((r) => r.id === openId) ?? null;
+
+  useEffect(() => {
+    if (tab !== "Following" || loading || !hasMorePosts || !feedRows.length) return;
+    const root = feedRef.current;
+    const target = root?.querySelectorAll<HTMLElement>("[data-feed-post]")[Math.max(0, feedRows.length - 3)];
+    if (!target || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMorePosts();
+    }, { rootMargin: "0px 0px 700px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [feedRows.length, hasMorePosts, loadMorePosts, loading, tab]);
 
   useEffect(() => {
     const root = feedRef.current;
@@ -383,9 +395,9 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
           onOpen={(row) => { setOpenComments(true); setOpenId(row.id); }}
           onShare={(row) => void share(row)}
           onWatch={markShortWatched}
-          onNearEnd={() => void loadMoreShorts()}
-          loadingMore={shortsLoadingMore}
-          hasMore={shortsHasMore}
+          onNearEnd={() => void loadMorePosts()}
+          loadingMore={loadingMorePosts}
+          hasMore={hasMorePosts}
           onFollow={(row) => void followShortAuthor(row)}
           onSave={(row) => void save(row)}
         />
@@ -404,7 +416,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
         const liked = !!me && r.vibes.some((v) => v.user_id === me);
         const saved = !!me && r.saves.some((s) => s.user_id === me);
         return (
-          <div key={r.id} className="space-y-3">
+          <div key={r.id} data-feed-post className="space-y-3">
           <article className={card}>
             <div className="h-1 w-full" style={{ background: `linear-gradient(90deg, ${meta.color}, #8b5cf6, #3b82f6)` }} />
             <div className="p-3 sm:p-3.5">
@@ -518,7 +530,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
         );
       })}
 
-      {shorts ? <ShortsViewer rows={shortsRows} me={me} initialId={initialShortId} onClose={() => setShorts(false)} onVibe={(r) => void vibe(r)} onOpen={(r) => { setOpenComments(true); setOpenId(r.id); }} onShare={(r) => void share(r)} onWatch={markShortWatched} onNearEnd={() => void loadMoreShorts()} loadingMore={shortsLoadingMore} hasMore={shortsHasMore} onFollow={(r) => void followShortAuthor(r)} onSave={(r) => void save(r)} /> : null}
+      {shorts ? <ShortsViewer rows={shortsViewerRows} me={me} initialId={initialShortId} initialIndex={initialShortIndex} onClose={() => setShorts(false)} onVibe={(r) => void vibe(r)} onOpen={(r) => { setOpenComments(true); setOpenId(r.id); }} onShare={(r) => void share(r)} onWatch={markShortWatched} onNearEnd={() => void loadMorePosts()} loadingMore={loadingMorePosts} hasMore={hasMorePosts} onFollow={(r) => void followShortAuthor(r)} onSave={(r) => void save(r)} /> : null}
       {open ? (
         <PostViewer
           key={open.id} row={open} me={me} initialCommentsOpen={openComments} onClose={() => { setOpenId(null); setOpenComments(false); }}
