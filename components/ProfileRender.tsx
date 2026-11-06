@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Rnd } from "react-rnd";
+import { Camera } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import type { ProfileBlock, ProfileRecord, ProfileSticker } from "@/lib/profile-schema";
 import { createDefaultProfileBlocks } from "@/lib/templates";
@@ -73,6 +74,7 @@ function BlockContent({
   postsLoading,
   totals,
   action,
+  mediaActions,
 }: {
   block: ProfileBlock;
   profile: ProfileRecord;
@@ -81,6 +83,7 @@ function BlockContent({
   postsLoading: boolean;
   totals: { posts: number; vibes: number };
   action?: ReactNode;
+  mediaActions?: { onAvatarClick?: () => void; onBannerClick?: () => void };
 }) {
   const config = block.config ?? {};
   const style = block.style ?? {};
@@ -122,7 +125,7 @@ function BlockContent({
 
   return (
     <div className={`h-full w-full overflow-auto p-4 ${style.textOnly === true ? "" : skin === "flat" ? "border border-white/10" : skin === "soft" ? "border border-white/10 shadow-md" : "border border-white/10 shadow-lg backdrop-blur-sm"}`} style={shellStyle}>
-      {block.type === "header" ? <HeaderBlock profile={profile} style={style} action={action} /> : null}
+      {block.type === "header" ? <HeaderBlock profile={profile} style={style} action={action} onAvatarClick={mediaActions?.onAvatarClick} /> : null}
 
       {block.type === "stats" ? <StatsBlock stats={{ ...stats, ...totals }} style={style} theme={profile.theme} /> : null}
 
@@ -226,6 +229,8 @@ export default function ProfileRender({
   selectedStickerId,
   onStickerSelect,
   onStickerUpdate,
+  onAvatarClick,
+  onBannerClick,
   action,
 }: {
   profile: ProfileRecord;
@@ -237,6 +242,8 @@ export default function ProfileRender({
   selectedStickerId?: string | null;
   onStickerSelect?: (id: string) => void;
   onStickerUpdate?: (id: string, update: Partial<ProfileSticker>) => void;
+  onAvatarClick?: () => void;
+  onBannerClick?: () => void;
   action?: ReactNode;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -303,6 +310,11 @@ export default function ProfileRender({
         fontFamily: profile.theme.fontBody,
       }}
     >
+      {onBannerClick ? (
+        <button type="button" onClick={onBannerClick} aria-label="Change profile cover" className="absolute right-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-[#07061a]/75 text-white shadow-lg backdrop-blur hover:bg-violet-600">
+          <Camera className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
       {(profile.theme.stickers ?? []).map((sticker) => {
         const stickerSource = sticker.type === "svg" ? STICKERS.find((item) => item.id === sticker.value)?.src : null;
         if (sticker.type === "svg" && !stickerSource) return null;
@@ -362,7 +374,7 @@ export default function ProfileRender({
         const geometry = getBlockGeometry(block, index);
         if (block.style?.hidden === true && !block.locked && !editable) return null;
         const selected = block.id === selectedBlockId;
-        const content = <BlockContent block={block} profile={profile} stats={stats} recentPosts={recentPosts} postsLoading={postsLoading} totals={totals} action={block.type === "header" ? action : undefined} />;
+        const content = <BlockContent block={block} profile={profile} stats={stats} recentPosts={recentPosts} postsLoading={postsLoading} totals={totals} action={block.type === "header" ? action : undefined} mediaActions={block.type === "header" ? { onAvatarClick, onBannerClick } : undefined} />;
 
         if (!editable) {
           return (

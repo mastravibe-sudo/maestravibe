@@ -9,6 +9,8 @@ const LIMITS = {
   video: 2.5 * 1024 * 1024,
   statusImage: 150 * 1024,
   statusMusic: 10 * 1024 * 1024,
+  chatImage: 150 * 1024,
+  chatVoice: 1024 * 1024,
 };
 const at = (b: Uint8Array, offset: number, sig: number[]) => sig.every((v, i) => b[offset + i] === v);
 const isWebp = (b: Uint8Array) => b.length >= 12 && at(b, 0, [0x52, 0x49, 0x46, 0x46]) && at(b, 8, [0x57, 0x45, 0x42, 0x50]);
@@ -87,7 +89,9 @@ export async function POST(req: Request) {
   const isPostVideo = purpose === "post-video";
   const isStatusImage = purpose === "status-image";
   const isStatusMusic = purpose === "status-music";
-  if (!isProfile && !isPostImage && !isPostVideo && !isStatusImage && !isStatusMusic) {
+  const isChatImage = purpose === "chat-image";
+  const isChatVoice = purpose === "chat-voice";
+  if (!isProfile && !isPostImage && !isPostVideo && !isStatusImage && !isStatusMusic && !isChatImage && !isChatVoice) {
     return Response.json({ error: "Invalid upload purpose." }, { status: 400 });
   }
 
@@ -95,11 +99,14 @@ export async function POST(req: Request) {
     : isPostImage ? LIMITS.post
       : isPostVideo ? LIMITS.video
         : isStatusImage ? LIMITS.statusImage
-          : LIMITS.statusMusic;
+          : isStatusMusic ? LIMITS.statusMusic
+            : isChatImage ? LIMITS.chatImage
+              : LIMITS.chatVoice;
   if (file.size === 0 || file.size > max) {
     const label = isPostVideo ? "Videos must be 30 seconds and 2.5 MB or less."
       : isStatusMusic ? "Status music must be an MP3 file of 10 MB or less."
-        : `Images must be ${Math.round(max / 1024)} KB or less.`;
+        : isChatVoice ? "Voice messages must be 2 minutes and 1 MB or less."
+          : `Images must be ${Math.round(max / 1024)} KB or less.`;
     return Response.json({ error: label }, { status: 413 });
   }
 
@@ -119,6 +126,9 @@ export async function POST(req: Request) {
     if (isMp4(bytes)) [ext, contentType] = ["mp4", "video/mp4"];
     else if (isWebm(bytes)) [ext, contentType] = ["webm", "video/webm"];
     else return Response.json({ error: "Only MP4 or WebM videos are allowed." }, { status: 400 });
+  } else if (isChatVoice) {
+    if (!isWebm(bytes)) return Response.json({ error: "Voice messages must use WebM/Opus audio." }, { status: 400 });
+    [ext, contentType] = ["webm", "audio/webm"];
   } else {
     if (!isWebp(bytes)) return Response.json({ error: "Only compressed WebP images are allowed." }, { status: 400 });
     [ext, contentType] = ["webp", "image/webp"];
@@ -128,7 +138,9 @@ export async function POST(req: Request) {
     ? `profiles/${user.id}/${imageType}/${crypto.randomUUID()}.${ext}`
     : isStatusImage || isStatusMusic
       ? `statuses/${user.id}/${crypto.randomUUID()}.${ext}`
-    : `posts/${user.id}/${crypto.randomUUID()}.${ext}`;
+      : isChatImage || isChatVoice
+        ? `chat-media/${user.id}/${crypto.randomUUID()}.${ext}`
+        : `posts/${user.id}/${crypto.randomUUID()}.${ext}`;
   try {
     await uploadObject(key, contentType, bytes);
     return Response.json({ publicUrl: publicUrl(key) });

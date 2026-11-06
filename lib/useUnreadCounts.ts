@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { subscribeWithRecovery } from "@/lib/supabase/realtime";
 
 export type UnreadNotificationCounts = {
   vibe: number;
@@ -102,14 +103,15 @@ export function useUnreadCounts(userId: string | null, enabled = true) {
     };
 
     void loadCounts();
-    const channel = supabase
-      .channel(`unread-counts-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${userId}` }, () => void loadCounts())
-      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => void loadCounts())
-      .on("postgres_changes", { event: "*", schema: "public", table: "message_reads", filter: `reader_id=eq.${userId}` }, () => void loadCounts())
-      .subscribe((status) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") console.error("Unread count updates disconnected.", status);
-      });
+    const unsubscribe = subscribeWithRecovery({
+      supabase,
+      channelName: `unread-counts-${userId}`,
+      configure: (channel) => channel
+        .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${userId}` }, () => void loadCounts())
+        .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => void loadCounts())
+        .on("postgres_changes", { event: "*", schema: "public", table: "message_reads", filter: `reader_id=eq.${userId}` }, () => void loadCounts()),
+      onDisconnected: () => console.error("Unread count updates remain disconnected after automatic retries."),
+    });
     const refreshOnFocus = () => {
       if (document.visibilityState === "visible") void loadCounts();
     };
@@ -120,7 +122,7 @@ export function useUnreadCounts(userId: string | null, enabled = true) {
       active = false;
       window.removeEventListener("focus", refreshOnFocus);
       document.removeEventListener("visibilitychange", refreshOnFocus);
-      void supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [enabled, pathname, userId]);
 

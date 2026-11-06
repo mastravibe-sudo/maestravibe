@@ -8,10 +8,8 @@ import type { ReactNode } from "react";
 import { Bookmark, Clapperboard, ExternalLink, Flame, HandHeart, ImagePlus, MessageCircle, Play, Repeat2, Share2, ShoppingBag, Video } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { typeMeta } from "@/components/postMeta";
-import PostComposer from "@/components/PostComposer";
 import { Avatar, ago, mediaOf, type Orig, type Row } from "@/components/postUtils";
 import { diversifyFeed, rankVideos } from "@/lib/feed/rank";
-import StatusBar from "@/components/StatusBar";
 import { requestActivityPush as sendActivityPush } from "@/lib/notifications/client";
 import { activateVideo, deactivateVideo, hasActiveVideo, isVideoActive } from "@/lib/activeVideo";
 
@@ -24,10 +22,13 @@ const SELECT =
   "comments(id,body,pinned,created_at,user_id,profiles!comments_user_id_fkey(username,name,avatar_url))";
 const ORIG = "id,title,body,image_url,media,profiles!posts_user_id_fkey(username,name,avatar_url)";
 const BRAND = "bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500";
-const card = "overflow-hidden rounded-xl border border-white/[0.06] bg-[#141028]";
+const card = "overflow-hidden rounded-xl border border-white/[0.06] bg-[#110f2e]";
 const act = "flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 text-base text-[#c9c4e8] hover:bg-white/10 active:scale-95 disabled:opacity-40";
-const TABS = ["For you", "Following", "Videos"] as const;
-const isVideo = (r: Row) => mediaOf(r.original ?? r)[0]?.type === "video";
+const TABS = ["For You", "Following"] as const;
+const isShortMedia = (r: Row) => {
+  const media = mediaOf(r.original ?? r)[0];
+  return media?.type === "video" || media?.type === "image";
+};
 type MarketProduct = { id: string; title: string; price: number; currency: string; image_url: string | null; url: string; in_stock: boolean };
 const EMPTY_IDS: string[] = [];
 
@@ -37,9 +38,8 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   const [rows, setRows] = useState<Row[]>([]);
   const [me, setMe] = useState<string | null>(null);
   const [following, setFollowing] = useState<string[]>([]);
-  const [tab, setTab] = useState<(typeof TABS)[number]>("For you");
+  const [tab, setTab] = useState<(typeof TABS)[number]>("For You");
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [shorts, setShorts] = useState(false);
   const [shortsRows, setShortsRows] = useState<Row[]>([]);
   const [initialShortId, setInitialShortId] = useState<string | null>(null);
@@ -51,6 +51,10 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   const [error, setError] = useState("");
   const [products, setProducts] = useState<MarketProduct[]>([]);
   const [marketError, setMarketError] = useState("");
+  const [shortsLoadingMore, setShortsLoadingMore] = useState(false);
+  const [shortsHasMore, setShortsHasMore] = useState(true);
+  const shortsPage = useRef(40);
+  const loadingShortsPage = useRef(false);
   const deepLinked = useRef(false);
   const watchedKey = `mv-short-watched:${me ?? "guest"}`;
 
@@ -63,7 +67,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   const load = useCallback(async () => {
     const [authResult, postsResult] = await Promise.all([
       supabase.auth.getUser(),
-      supabase.from("posts").select(SELECT).order("created_at", { ascending: false }).limit(40),
+      supabase.from("posts").select(SELECT).order("created_at", { ascending: false }).range(0, 39),
     ]);
     const user = authResult.data.user;
     setMe(user?.id ?? null);
@@ -91,6 +95,8 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
       return;
     }
     const list = (data as unknown as Row[]) ?? [];
+    shortsPage.current = list.length;
+    setShortsHasMore(list.length === 40);
     const ids = [...new Set(list.map((r) => r.repost_of).filter((x): x is string => !!x))];
     if (ids.length) {
       const { data: originals } = await supabase.from("posts").select(ORIG).in("id", ids);
@@ -105,6 +111,14 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
     try { setHidden(JSON.parse(localStorage.getItem("mv-hidden") ?? "[]")); } catch { /* ignore */ }
+  }, [load]);
+
+  useEffect(() => {
+    const refreshFeed = () => void load();
+    window.addEventListener("mv:post-published", refreshFeed);
+    return () => {
+      window.removeEventListener("mv:post-published", refreshFeed);
+    };
   }, [load]);
 
   useEffect(() => {
@@ -190,7 +204,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
 
   const notHidden = useMemo(() => rows.filter((r) => !hidden.includes(r.id)), [rows, hidden]);
   const visible = useMemo(
-    () => notHidden.filter((r) => tab === "Following" ? r.user_id === me || following.includes(r.user_id) : tab === "Videos" ? isVideo(r) : true),
+    () => notHidden.filter((r) => tab === "Following" ? r.user_id === me || following.includes(r.user_id) : true),
     [notHidden, tab, me, following]
   );
   const feedRows = useMemo(() => diversifyFeed(visible), [visible]);
@@ -199,13 +213,13 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     [watched.key, watched.ids, watchedKey],
   );
   const rankedShorts = useMemo(
-    () => rankVideos(notHidden.filter(isVideo), { followedIds: following, watchedIds }),
+    () => rankVideos(notHidden.filter(isShortMedia), { followedIds: following, watchedIds }),
     [notHidden, following, watchedIds]
   );
   const shortsAt = useMemo(() => {
     const placements = new Map<number, Row[]>();
     const used = new Set<string>();
-    if (tab !== "Videos") {
+    if (tab === "Following") {
       for (let postCount = 6; postCount <= feedRows.length; postCount += 6) {
         const strip = rankedShorts.filter((row) => !used.has(row.id)).slice(0, 8);
         strip.forEach((row) => used.add(row.id));
@@ -227,6 +241,49 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     setInitialShortId(initialId);
     setShorts(true);
   };
+  const loadMoreShorts = useCallback(async () => {
+    if (loadingShortsPage.current || !shortsHasMore) return;
+    loadingShortsPage.current = true;
+    setShortsLoadingMore(true);
+    try {
+      const start = shortsPage.current;
+      const { data, error: pageError } = await supabase.from("posts")
+        .select(SELECT)
+        .order("created_at", { ascending: false })
+        .range(start, start + 39);
+      if (pageError) throw pageError;
+      const page = (data ?? []) as unknown as Row[];
+      shortsPage.current += page.length;
+      setShortsHasMore(page.length === 40);
+
+      const originalIds = [...new Set(page.map((row) => row.repost_of).filter((id): id is string => !!id))];
+      if (originalIds.length) {
+        const { data: originals, error: originalError } = await supabase.from("posts").select(ORIG).in("id", originalIds);
+        if (originalError) throw originalError;
+        const originalById = new Map(((originals ?? []) as unknown as Orig[]).map((original) => [original.id, original]));
+        page.forEach((row) => { row.original = row.repost_of ? originalById.get(row.repost_of) ?? null : null; });
+      }
+
+      const existingIds = new Set(rows.map((row) => row.id));
+      const newRows = page.filter((row) => !existingIds.has(row.id));
+      if (newRows.length) {
+        setRows((current) => [...current, ...newRows]);
+        const newVideos = newRows.filter(isShortMedia);
+        if (newVideos.length) {
+          setShortsRows((current) => {
+            const ids = new Set(current.map((row) => row.id));
+            return [...current, ...newVideos.filter((row) => !ids.has(row.id))];
+          });
+        }
+      }
+    } catch (pageError) {
+      fail(pageError);
+      setShortsHasMore(false);
+    } finally {
+      loadingShortsPage.current = false;
+      setShortsLoadingMore(false);
+    }
+  }, [rows, shortsHasMore, supabase]);
   const markShortWatched = (id: string) => {
     if (!id) return;
     const current = watched.key === watchedKey ? watched.ids : [];
@@ -235,6 +292,22 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     try { localStorage.setItem(watchedKey, JSON.stringify(ids)); } catch { /* retain history in memory */ }
     setWatched({ key: watchedKey, ids });
   };
+  const followShortAuthor = async (row: Row) => {
+    if (!me) {
+      flash("Log in to follow creators.");
+      return;
+    }
+    if (following.includes(row.user_id) || row.user_id === me) return;
+    const { error: followError } = await supabase.from("follows").insert({ follower_id: me, followed_id: row.user_id });
+    if (followError) {
+      fail(followError);
+      return;
+    }
+    setFollowing((current) => [...current, row.user_id]);
+    const pushError = await sendActivityPush({ type: "follow", profileId: row.user_id });
+    if (pushError) setError(pushError);
+  };
+  const openComposer = () => window.dispatchEvent(new Event("mv:open-composer"));
   const open = rows.find((r) => r.id === openId) ?? null;
 
   useEffect(() => {
@@ -282,27 +355,45 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   }, [feedRows, openId, shorts, shortsAt]);
 
   return (
-    <section ref={feedRef} data-mode="dark" aria-label="Community feed" className="mx-auto max-w-3xl space-y-3 px-0 py-3 sm:py-5">
-      <StatusBar userId={me} />
-      {me ? (
+    <section ref={feedRef} data-mode="dark" aria-label="Community feed" className="mx-auto max-w-3xl space-y-3 px-0 py-3 sm:px-3 sm:py-5">
+      {tab === "Following" && me ? (
         <div className={`${card} flex items-center gap-2 p-3`}>
-          <button onClick={() => setCreating(true)} className="h-11 flex-1 rounded-xl bg-[#1d1840] px-4 text-left text-sm text-[#a8a2c9] hover:bg-[#25205a]">What&apos;s your vibe today?</button>
-          <button onClick={() => setCreating(true)} aria-label="Add photo" className="flex h-12 w-12 items-center justify-center rounded-full text-violet-500 hover:bg-white/10"><ImagePlus className="h-6 w-6" /></button>
-          <button onClick={() => setCreating(true)} aria-label="Add video" className="flex h-12 w-12 items-center justify-center rounded-full text-pink-500 hover:bg-white/10"><Video className="h-6 w-6" /></button>
+          <button onClick={openComposer} className="h-11 flex-1 rounded-xl bg-[#1d1840] px-4 text-left text-sm text-[#a8a2c9] hover:bg-[#25205a]">What&apos;s your vibe today?</button>
+          <button onClick={openComposer} aria-label="Add photo" className="flex h-12 w-12 items-center justify-center rounded-full text-violet-500 hover:bg-white/10"><ImagePlus className="h-6 w-6" /></button>
+          <button onClick={openComposer} aria-label="Add video" className="flex h-12 w-12 items-center justify-center rounded-full text-pink-500 hover:bg-white/10"><Video className="h-6 w-6" /></button>
         </div>
-      ) : !loading ? (
+      ) : tab === "Following" && !loading ? (
         <Link href="/login" className={`${card} block p-4 text-center text-base text-[#c9c4e8] hover:bg-white/5`}>Log in or sign up to share your vibe</Link>
       ) : null}
 
-      <div className="flex items-center gap-2">
-        <div className="flex flex-1 gap-1 rounded-full bg-[#141028] p-1" role="tablist" aria-label="Feed sections">
-          {TABS.map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-10 flex-1 rounded-full text-sm font-medium ${tab === t ? `${BRAND} text-white shadow` : "text-[#c9c4e8]"}`}>{t}</button>)}
+      <div className="sticky top-14 z-20 flex items-center gap-2 rounded-b-xl border-b border-white/[0.06] bg-[#07061a]/90 px-2 py-2 backdrop-blur">
+        <div className="flex flex-1 gap-1 rounded-full bg-[#110f2e] p-1" role="tablist" aria-label="Feed sections">
+          {TABS.map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-10 flex-1 rounded-full text-sm font-medium ${tab === t ? "bg-linear-to-r from-[#7c3aed] to-[#2563eb] text-white shadow" : "text-[#c9c4e8]"}`}>{t}</button>)}
         </div>
-        <button onClick={() => openShorts()} className={`flex h-12 items-center gap-2 rounded-full px-4 text-sm font-semibold text-white ${BRAND}`}><Clapperboard className="h-5 w-5" aria-hidden="true" />Shorts</button>
+        {tab === "Following" ? <button onClick={() => openShorts()} className={`flex h-11 items-center gap-2 rounded-full px-4 text-sm font-semibold text-white ${BRAND}`}><Clapperboard className="h-5 w-5" aria-hidden="true" />Shorts</button> : null}
       </div>
 
-      {note ? <p role="status" className="rounded-lg bg-emerald-500/15 p-3 text-sm text-emerald-300">{note}</p> : null}
-      {error ? <p role="alert" className="rounded-xl bg-red-500/15 p-3 text-sm text-red-300">{error}</p> : null}
+      {tab === "For You" ? (
+        <ShortsViewer
+          inline
+          rows={rankedShorts}
+          me={me}
+          onClose={() => undefined}
+          onVibe={(row) => void vibe(row)}
+          onOpen={(row) => { setOpenComments(true); setOpenId(row.id); }}
+          onShare={(row) => void share(row)}
+          onWatch={markShortWatched}
+          onNearEnd={() => void loadMoreShorts()}
+          loadingMore={shortsLoadingMore}
+          hasMore={shortsHasMore}
+          onFollow={(row) => void followShortAuthor(row)}
+          onSave={(row) => void save(row)}
+        />
+      ) : null}
+
+      <div className={tab === "Following" ? "space-y-3" : "hidden"}>
+      {note ? <p role="status" className="rounded-lg border border-violet-300/15 bg-violet-500/10 p-3 text-sm text-violet-200">{note}</p> : null}
+      {error ? <p role="alert" className="rounded-xl border border-pink-400/20 bg-pink-400/10 p-3 text-sm text-pink-100">{error}</p> : null}
       {loading ? <p className="py-10 text-center text-[#a8a2c9]">Loading posts...</p> : feedRows.length === 0 && !error ? <p className="py-10 text-center text-[#a8a2c9]">{tab === "Following" ? "Follow people to see their posts here." : "Nothing here yet. Be the first to share your vibe."}</p> : null}
 
       {feedRows.map((r, index) => {
@@ -353,7 +444,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
               </button>
 
               <footer className="-mx-2 mt-3 flex items-center">
-                <button onClick={() => void vibe(r)} className={`${act} ${liked ? "font-semibold text-orange-500" : ""}`} aria-label={r.type === "struggle" ? "Support" : "Vibe"}>{r.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Flame className="h-6 w-6" />}{r.vibes.length}</button>
+                <button onClick={() => void vibe(r)} className={`${act} ${liked ? "font-semibold text-pink-300" : ""}`} aria-label={r.type === "struggle" ? "Support" : "Vibe"}>{r.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Flame className="h-6 w-6" />}{r.vibes.length}</button>
                 <button onClick={() => { setOpenComments(true); setOpenId(r.id); }} className={act} aria-label="Comments"><MessageCircle className="h-6 w-6" />{r.comments.length}</button>
                 <button onClick={() => void repost(r)} disabled={r.share_policy === "nobody" && r.user_id !== me} className={act} aria-label="Repost"><Repeat2 className="h-6 w-6" /></button>
                 <button onClick={() => void share(r)} className={act} aria-label="Share"><Share2 className="h-6 w-6" /></button>
@@ -373,7 +464,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
                   const shortMedia = mediaOf(short.original ?? short)[0];
                   return (
                     <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-lg bg-black text-left sm:w-32">
-                      <video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                      {shortMedia.type === "video" ? <video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : <img src={shortMedia.url} alt="" loading="lazy" className="h-full w-full object-cover" />}
                       <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 text-xs font-semibold text-white">@{short.profiles.username}</span>
                     </button>
                   );
@@ -418,7 +509,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
               <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1">
                 {shortsAt.get(index + 1)?.map((short) => {
                   const shortMedia = mediaOf(short.original ?? short)[0];
-                  return <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-lg bg-black text-left sm:w-32"><video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover" /><span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 text-xs font-semibold text-white">@{short.profiles.username}</span></button>;
+                  return <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-lg bg-black text-left sm:w-32">{shortMedia.type === "video" ? <video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : <img src={shortMedia.url} alt="" loading="lazy" className="h-full w-full object-cover" />}<span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 text-xs font-semibold text-white">@{short.profiles.username}</span></button>;
                 })}
               </div>
             </section>
@@ -427,7 +518,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
         );
       })}
 
-      {shorts ? <ShortsViewer rows={shortsRows} me={me} initialId={initialShortId} onClose={() => setShorts(false)} onVibe={(r) => void vibe(r)} onOpen={(r) => { setOpenComments(true); setOpenId(r.id); }} onShare={(r) => void share(r)} onWatch={markShortWatched} /> : null}
+      {shorts ? <ShortsViewer rows={shortsRows} me={me} initialId={initialShortId} onClose={() => setShorts(false)} onVibe={(r) => void vibe(r)} onOpen={(r) => { setOpenComments(true); setOpenId(r.id); }} onShare={(r) => void share(r)} onWatch={markShortWatched} onNearEnd={() => void loadMoreShorts()} loadingMore={shortsLoadingMore} hasMore={shortsHasMore} onFollow={(r) => void followShortAuthor(r)} onSave={(r) => void save(r)} /> : null}
       {open ? (
         <PostViewer
           key={open.id} row={open} me={me} initialCommentsOpen={openComments} onClose={() => { setOpenId(null); setOpenComments(false); }}
@@ -436,7 +527,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
           onToggleComments={() => void toggleComments(open)} onDelete={() => void remove(open)}
         />
       ) : null}
-      {creating && me ? <PostComposer me={me} onClose={() => setCreating(false)} onPublished={() => { setCreating(false); void load(); flash("Your post is live"); }} /> : null}
+      </div>
     </section>
   );
 }

@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ImagePlus, Music2, Plus, Send, Trash2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { compressImage } from "@/lib/media/compress";
+import { requestActivityPush } from "@/lib/notifications/client";
+import { subscribeWithRecovery } from "@/lib/supabase/realtime";
 
 type Status = {
   id: string;
@@ -17,6 +20,7 @@ type Status = {
 };
 type Person = { id: string; username: string; name: string | null; avatar_url: string | null };
 type StatusGroup = { person: Person; statuses: Status[] };
+type StatusViewer = { person: Person; viewed_at: string };
 
 const MAX_IMAGE_BYTES = 150 * 1024;
 const MAX_MUSIC_BYTES = 10 * 1024 * 1024;
@@ -68,6 +72,9 @@ function Avatar({ person, hasStatus, onClick }: { person: Person; hasStatus: boo
 
 export default function StatusBar({ userId }: { userId: string | null }) {
   const [supabase] = useState(() => createClient());
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedStatusId = searchParams.get("status");
   const [groups, setGroups] = useState<StatusGroup[]>([]);
   const [profile, setProfile] = useState<Person | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -81,6 +88,8 @@ export default function StatusBar({ userId }: { userId: string | null }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [realtimeDisconnected, setRealtimeDisconnected] = useState(false);
+  const [statusViewers, setStatusViewers] = useState<StatusViewer[]>([]);
   const audioRef = useRef<HTMLAudioElement>(null);
   const status = viewingGroup?.statuses[viewingIndex] ?? null;
 
@@ -153,18 +162,18 @@ export default function StatusBar({ userId }: { userId: string | null }) {
     if (!userId) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadStatuses();
-    const channel = supabase
-      .channel(`statuses-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "statuses" }, () => void loadStatuses())
-      .subscribe((channelStatus) => {
-        if (channelStatus === "CHANNEL_ERROR" || channelStatus === "TIMED_OUT") {
-          setError("Status updates disconnected. Refresh the page to reconnect.");
-        }
-      });
+    const unsubscribe = subscribeWithRecovery({
+      supabase,
+      channelName: `statuses-${userId}`,
+      configure: (channel) => channel
+        .on("postgres_changes", { event: "*", schema: "public", table: "statuses" }, () => void loadStatuses()),
+      onDisconnected: () => setRealtimeDisconnected(true),
+      onReconnected: () => setRealtimeDisconnected(false),
+    });
     const expiryTimer = window.setInterval(() => void loadStatuses(), 60_000);
     return () => {
       window.clearInterval(expiryTimer);
-      void supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [loadStatuses, supabase, userId]);
 
@@ -178,6 +187,72 @@ export default function StatusBar({ userId }: { userId: string | null }) {
       setError("Tap play to hear this status's music.");
     });
   }, [status?.id, status?.music_url]);
+
+  useEffect(() => {
+    if (!requestedStatusId || !groups.length) return;
+    const group = groups.find((candidate) => candidate.statuses.some((item) => item.id === requestedStatusId));
+    if (!group) return;
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setViewingGroup(group);
+      setViewingIndex(group.statuses.findIndex((item) => item.id === requestedStatusId));
+      router.replace("/inbox", { scroll: false });
+    });
+    return () => { active = false; };
+  }, [groups, requestedStatusId, router]);
+
+  const statusId = status?.id;
+  const statusOwnerId = status?.user_id;
+  useEffect(() => {
+    let active = true;
+    if (!statusId || !statusOwnerId || !userId) {
+      queueMicrotask(() => {
+        if (active) setStatusViewers([]);
+      });
+      return () => { active = false; };
+    }
+
+    const loadViewers = async () => {
+      if (statusOwnerId !== userId) {
+        setStatusViewers([]);
+        const { error: viewError } = await supabase.from("status_views").insert({ status_id: statusId, viewer_id: userId });
+        if (viewError && viewError.code !== "23505" && active) setError(viewError.message);
+        return;
+      }
+
+      const { data: views, error: viewsError } = await supabase
+        .from("status_views")
+        .select("viewer_id,viewed_at")
+        .eq("status_id", statusId)
+        .order("viewed_at", { ascending: false });
+      if (viewsError) {
+        if (active) setError(viewsError.message);
+        return;
+      }
+      const viewerIds = [...new Set((views ?? []).map((view) => view.viewer_id as string))];
+      if (!viewerIds.length) {
+        if (active) setStatusViewers([]);
+        return;
+      }
+      const { data: people, error: peopleError } = await supabase
+        .from("profiles")
+        .select("id,username,name,avatar_url")
+        .in("id", viewerIds);
+      if (peopleError) {
+        if (active) setError(peopleError.message);
+        return;
+      }
+      const personById = new Map(((people ?? []) as Person[]).map((person) => [person.id, person]));
+      if (active) setStatusViewers((views ?? []).flatMap((view) => {
+        const person = personById.get(view.viewer_id as string);
+        return person ? [{ person, viewed_at: view.viewed_at as string }] : [];
+      }));
+    };
+
+    void loadViewers();
+    return () => { active = false; };
+  }, [statusId, statusOwnerId, supabase, userId]);
 
   const statusCount = useMemo(() => groups.reduce((count, group) => count + group.statuses.length, 0), [groups]);
   const ownStatus = groups.find((group) => group.person.id === userId);
@@ -238,16 +313,18 @@ export default function StatusBar({ userId }: { userId: string | null }) {
       }
       if (musicFile) musicUrl = await uploadStatusFile(musicFile, "status-music", "status.mp3");
 
-      const { error: insertError } = await supabase.from("statuses").insert({
+      const { data: createdStatus, error: insertError } = await supabase.from("statuses").insert({
         user_id: userId,
         text: draft.trim(),
         image_url: imageUrl,
         music_url: musicUrl,
         music_duration: musicDuration,
-      });
+      }).select("id").single();
       if (insertError) throw new Error(insertError.message);
       resetComposer();
       await loadStatuses();
+      const pushError = await requestActivityPush({ type: "status", statusId: createdStatus.id });
+      if (pushError) setError(pushError);
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : "Could not post your status.");
     } finally {
@@ -311,6 +388,7 @@ export default function StatusBar({ userId }: { userId: string | null }) {
           {!loading && groups.length === 0 ? <span className="self-center text-xs text-zinc-500">Share a moment that disappears in 24 hours.</span> : null}
         </div>
         {error && !composerOpen && !viewingGroup ? <p role="alert" className="mt-3 rounded-xl border border-red-400/20 bg-red-950/30 p-2 text-xs text-red-200">{error}</p> : null}
+        {realtimeDisconnected ? <p role="status" className="mt-3 rounded-lg bg-violet-500/10 px-3 py-2 text-xs text-violet-200">Reconnecting to status updates…</p> : null}
       </section>
 
       {composerOpen ? (
@@ -371,6 +449,23 @@ export default function StatusBar({ userId }: { userId: string | null }) {
             {status.music_url ? (
               <div className="absolute inset-x-0 bottom-5 z-20 flex justify-center px-5">
                 <audio ref={audioRef} key={status.id} src={status.music_url} controls autoPlay className="h-10 w-full max-w-sm" />
+              </div>
+            ) : null}
+            {status.user_id === userId ? (
+              <div className={`absolute inset-x-3 z-20 max-h-24 overflow-y-auto rounded-xl border border-white/10 bg-black/55 px-3 py-2 backdrop-blur ${status.music_url ? "bottom-16" : "bottom-3"}`}>
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/70">Viewed by {statusViewers.length}</p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {statusViewers.map(({ person, viewed_at }) => (
+                    <span key={person.id} title={new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(viewed_at))} className="flex items-center gap-1.5 text-xs text-white/90">
+                      {person.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={person.avatar_url} alt="" className="h-5 w-5 rounded-full object-cover" />
+                      ) : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-violet-500 text-[9px]">{(person.name || person.username).slice(0, 1).toUpperCase()}</span>}
+                      {person.name || `@${person.username}`}
+                    </span>
+                  ))}
+                  {!statusViewers.length ? <span className="text-xs text-white/60">No views yet</span> : null}
+                </div>
               </div>
             ) : null}
             <button aria-label="Previous status" onClick={previousStatus} className="absolute inset-y-20 left-0 z-10 w-1/3" />

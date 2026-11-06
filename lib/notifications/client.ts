@@ -1,7 +1,8 @@
 export type ActivityPush =
   | { type: "vibe" | "comment"; postId: string }
   | { type: "follow"; profileId: string }
-  | { type: "message"; messageId: string };
+  | { type: "message"; messageId: string }
+  | { type: "status"; statusId: string };
 
 export async function requestActivityPush(activity: ActivityPush): Promise<string | null> {
   try {

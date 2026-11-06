@@ -65,3 +65,52 @@ body {
 .home-dashboard-root[data-mode="dark"] .home-dashboard-panel .bg-slate-50 {
   background-color: #27272a;
 }
+
+.space-depth-field {
+  position: absolute;
+  inset: -10%;
+  perspective: 700px;
+  transform-style: preserve-3d;
+}
+
+.space-star {
+  position: absolute;
+  border-radius: 9999px;
+  background: #e9e4ff;
+  box-shadow: 0 0 8px rgb(124 58 237 / 55%);
+  transform: translateZ(var(--star-depth));
+  animation: maestra-star-drift 24s ease-in-out infinite alternate;
+  animation-play-state: paused;
+}
+
+.space-star[data-paused="false"][data-reduced-motion="false"] {
+  animation-play-state: running;
+}
+
+.space-star[data-reduced-motion="true"] {
+  animation: none;
+}
+
+@keyframes maestra-star-drift {
+  from {
+    transform: translate3d(0, 0, var(--star-depth)) scale(0.65);
+  }
+  to {
+    transform: translate3d(12px, -18px, calc(var(--star-depth) + 35px)) scale(1.2);
+  }
+}
+
+/* Hide scrollbars, keep scrolling */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+* { scrollbar-width: thin; scrollbar-color: #7c3aed transparent; }
+*::-webkit-scrollbar { width: 4px; height: 4px; }
+*::-webkit-scrollbar-thumb { background: #7c3aed; border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }

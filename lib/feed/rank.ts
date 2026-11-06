@@ -24,7 +24,7 @@ export function rankVideos(rows: Row[], { followedIds, watchedIds }: VideoRankOp
   const remaining = rows
     .filter((row) => {
       const id = videoId(row);
-      if (watched.has(id) || seen.has(id)) return false;
+      if (seen.has(id)) return false;
       seen.add(id);
       return true;
     })
@@ -33,8 +33,8 @@ export function rankVideos(rows: Row[], { followedIds, watchedIds }: VideoRankOp
       const recency = 5 * Math.exp(-ageDays / 7);
       const engagement = Math.log1p(row.vibes.length) * 0.6 + Math.log1p(row.comments.length) * 0.9;
       const followedBoost = followed.has(row.user_id) ? 2 : 0;
-      const shuffle = Math.random() * 0.2;
-      return { row, score: recency + engagement + followedBoost + shuffle };
+      const unseenBoost = watched.has(videoId(row)) ? 0 : 1000;
+      return { row, score: unseenBoost + recency + engagement + followedBoost };
     })
     .sort((a, b) => b.score - a.score);
 

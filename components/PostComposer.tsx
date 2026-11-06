@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ImagePlus, MapPin, Scissors, Smile, Sparkles, Type, Video, X } from "lucide-react";
+import { ArrowLeft, Globe2, ImagePlus, MapPin, Scissors, Smile, Sparkles, Type, Video, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { generateAiSuggestions } from "@/lib/ai/generate";
 import { MEDIA_LIMITS, compressImage, readVideoMeta, type VideoMeta } from "@/lib/media/compress";
@@ -24,7 +24,7 @@ const FILTERS = [
 ];
 const ASPECTS = [{ id: "original", name: "Original", r: 0 }, { id: "1:1", name: "1:1", r: 1 }, { id: "4:5", name: "4:5", r: 0.8 }, { id: "16:9", name: "16:9", r: 16 / 9 }];
 const MAX_SOURCE_BYTES = 300 * 1024 * 1024;
-const input = "w-full rounded-lg border border-white/10 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-blue-500";
+const input = "w-full rounded-xl border border-white/10 bg-[#07061a] px-3 py-2.5 text-sm text-[#f4f2ff] outline-none focus:border-violet-400";
 
 function loadImage(url: string) {
   return new Promise<HTMLImageElement>((res, rej) => {
@@ -290,7 +290,8 @@ async function upload(blob: Blob, purpose: "post" | "post-video", name: string) 
 }
 
 export default function PostComposer({ me, onClose, onPublished }: { me: string; onClose: () => void; onPublished: () => void }) {
-  const [step, setStep] = useState<"media" | "edit" | "details">("media");
+  const [step, setStep] = useState<"media" | "edit" | "details">("details");
+  const [composerTab, setComposerTab] = useState<"Post" | "Photo" | "Video" | "Achievement">("Post");
   const [file, setFile] = useState<File | null>(null);
   const [kind, setKind] = useState<"image" | "video" | null>(null);
   const [preview, setPreview] = useState("");
@@ -313,6 +314,8 @@ export default function PostComposer({ me, onClose, onPublished }: { me: string;
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
 
   const filterCss = FILTERS.find((f) => f.id === filterId)?.css ?? "none";
   const ratio = ASPECTS.find((a) => a.id === aspect)?.r ?? 0;
@@ -333,6 +336,7 @@ export default function PostComposer({ me, onClose, onPublished }: { me: string;
       }
       setFile(f);
       setKind(want);
+      setComposerTab(want === "image" ? "Photo" : "Video");
       setStart(0);
       setPreview(URL.createObjectURL(f));
       setStep("edit");
@@ -421,31 +425,53 @@ if (clip.size > MEDIA_LIMITS.videoMaxBytes) {
   };
 
   const clipEnd = vmeta ? Math.min(vmeta.duration, start + MEDIA_LIMITS.videoMaxSeconds) : 0;
+  const selectTab = (next: typeof composerTab) => {
+    setComposerTab(next);
+    if (next === "Photo") {
+      imageInputRef.current?.click();
+      return;
+    }
+    if (next === "Video") {
+      videoInputRef.current?.click();
+      return;
+    }
+    if (next === "Achievement") setType("achievement");
+    else setType("vibe");
+    setFile(null);
+    setKind(null);
+    setPreview("");
+    setStep("details");
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Create post">
-      <div className="flex max-h-[94vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-zinc-900 text-zinc-100 shadow-2xl sm:rounded-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#07061a]/85 backdrop-blur-sm sm:p-4" role="dialog" aria-modal="true" aria-label="Create post">
+      <div className="flex h-dvh max-h-dvh w-full max-w-xl flex-col overflow-hidden border border-white/[0.06] bg-[#110f2e] text-[#f4f2ff] shadow-2xl sm:h-auto sm:max-h-[94dvh] sm:rounded-2xl">
         <header className="flex items-center gap-2 border-b border-white/10 p-3">
           {step !== "media" ? <button onClick={() => setStep(step === "details" ? (file ? "edit" : "media") : "media")} aria-label="Back" className="rounded-full p-2 hover:bg-white/10"><ArrowLeft className="h-5 w-5" /></button> : null}
-          <h2 className="flex-1 text-base font-semibold">{step === "media" ? "New post" : step === "edit" ? "Edit media" : "Details"}</h2>
+          <h2 className="flex-1 text-base font-semibold">{step === "media" ? "Create post" : step === "edit" ? "Edit media" : "New post"}</h2>
           {step === "edit" ? <button onClick={() => setStep("details")} className="rounded-full bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white">Next</button> : null}
           <button onClick={onClose} aria-label="Close" className="rounded-full p-2 hover:bg-white/10"><X className="h-5 w-5" /></button>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {error ? <p role="alert" className="mb-3 rounded-lg bg-red-500/10 p-3 text-sm text-red-300">{error}</p> : null}
+          <div className="mb-4 grid grid-cols-4 gap-1 rounded-full bg-[#07061a] p-1" role="tablist" aria-label="Post type">
+            {(["Post", "Photo", "Video", "Achievement"] as const).map((item) => <button key={item} type="button" role="tab" aria-selected={composerTab === item} onClick={() => selectTab(item)} className={`min-h-10 rounded-full px-1 text-xs font-semibold sm:text-sm ${composerTab === item ? "bg-linear-to-r from-[#7c3aed] to-[#2563eb] text-white" : "text-[#a8a2c9]"}`}>{item}</button>)}
+          </div>
+          <input ref={imageInputRef} type="file" accept="image/*" className="sr-only" onChange={(event) => { void pick(event.target.files?.[0], "image"); event.currentTarget.value = ""; }} />
+          <input ref={videoInputRef} type="file" accept="video/*" className="sr-only" onChange={(event) => { void pick(event.target.files?.[0], "video"); event.currentTarget.value = ""; }} />
+          {error ? <p role="alert" className="mb-3 rounded-lg border border-pink-400/20 bg-pink-400/10 p-3 text-sm text-pink-100">{error}</p> : null}
 
           {step === "media" ? (
             <div className="space-y-3">
               <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 p-4 hover:bg-white/5">
                 <ImagePlus className="h-6 w-6 text-blue-400" /><span><span className="block font-medium">Photo</span><span className="text-xs text-zinc-400">Shrunk to under 70 KB automatically</span></span>
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => void pick(e.target.files?.[0], "image")} />
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => { void pick(e.target.files?.[0], "image"); e.currentTarget.value = ""; }} />
               </label>
               <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 p-4 hover:bg-white/5">
                 <Video className="h-6 w-6 text-pink-400" /><span><span className="block font-medium">Video</span><span className="text-xs text-zinc-400">Any length. You pick the best 30 seconds.</span></span>
-                <input type="file" accept="video/*" className="hidden" onChange={(e) => void pick(e.target.files?.[0], "video")} />
+                <input type="file" accept="video/*" className="hidden" onChange={(e) => { void pick(e.target.files?.[0], "video"); e.currentTarget.value = ""; }} />
               </label>
-              <button onClick={() => { setFile(null); setKind(null); setStep("details"); }} className="flex w-full items-center gap-3 rounded-xl border border-white/10 p-4 text-left hover:bg-white/5"><Type className="h-6 w-6 text-emerald-400" /><span className="font-medium">Text only</span></button>
+              <button onClick={() => { setFile(null); setKind(null); setPreview(""); setStep("details"); }} className="flex w-full items-center gap-3 rounded-xl border border-white/10 p-4 text-left hover:bg-white/5"><Type className="h-6 w-6 text-violet-300" /><span className="font-medium">Text only</span></button>
               <a href="https://www.capcut.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200"><Scissors className="h-4 w-4" />Edit in CapCut first, then upload the exported file here.</a>
             </div>
           ) : null}
@@ -486,6 +512,7 @@ if (clip.size > MEDIA_LIMITS.videoMaxBytes) {
 
           {step === "details" ? (
             <div className="space-y-4">
+              <button type="button" onClick={() => { imageInputRef.current?.click(); }} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-[#07061a] text-sm font-semibold text-[#d7d2ef] hover:border-violet-400"><ImagePlus className="h-4 w-4" />Add Media</button>
               <div className="flex flex-wrap gap-2">
                 {(Object.keys(typeMeta) as PostType[]).map((k) => { const { Icon, label } = typeMeta[k]; return (
                   <button key={k} onClick={() => setType(k)} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm ${type === k ? "bg-blue-600 text-white" : "bg-zinc-800 text-zinc-300"}`}><Icon className="h-4 w-4" />{label}</button>
@@ -509,8 +536,9 @@ if (clip.size > MEDIA_LIMITS.videoMaxBytes) {
                   </div>
                 ) : null}
               </div>
-              <input value={tagsText} onChange={(e) => setTagsText(e.target.value)} placeholder="Tags: travel, dreams, startup (max 10)" className={input} />
-              <div className="relative"><MapPin className="absolute left-3 top-3 h-4 w-4 text-zinc-500" /><input value={location} onChange={(e) => setLocation(e.target.value)} maxLength={80} placeholder="Add location" className={`${input} pl-9`} /></div>
+              <input value={tagsText} onChange={(e) => setTagsText(e.target.value)} placeholder="Add Tags (max 10)" className={input} />
+              <div className="relative"><MapPin className="absolute left-3 top-3 h-4 w-4 text-zinc-500" /><input value={location} onChange={(e) => setLocation(e.target.value)} maxLength={80} placeholder="Add Location" className={`${input} pl-9`} /></div>
+              <div className="flex min-h-11 items-center gap-2 text-sm text-[#c9c4e8]"><Globe2 className="h-4 w-4 text-violet-300" />Visibility <span className="rounded-full border border-white/10 bg-[#07061a] px-3 py-1 text-xs">Public</span></div>
               <label className="block text-sm"><span className="mb-1 block text-zinc-400">Who can comment</span>
                 <select value={commentPolicy} onChange={(e) => setCommentPolicy(e.target.value)} className={input}><option value="everyone">Everyone</option><option value="followers">Only my followers</option><option value="off">No one (comments off)</option></select></label>
               <label className="block text-sm"><span className="mb-1 block text-zinc-400">Who can repost and share</span>
@@ -522,7 +550,7 @@ if (clip.size > MEDIA_LIMITS.videoMaxBytes) {
         {step === "details" ? (
           <footer className="border-t border-white/10 p-3">
             {busy ? <div className="mb-2"><p className="text-xs text-zinc-400">{status}</p>{kind === "video" ? <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-800"><div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round(progress * 100)}%` }} /></div> : null}</div> : null}
-            <button onClick={() => void publish()} disabled={busy} className="w-full rounded-lg bg-blue-600 py-3 font-semibold text-white hover:bg-blue-500 disabled:opacity-50">{busy ? "Please wait..." : "Share post"}</button>
+            <button onClick={() => void publish()} disabled={busy} className="w-full rounded-xl bg-linear-to-r from-[#7c3aed] to-[#2563eb] py-3 font-semibold text-white disabled:opacity-50">{busy ? "Please wait..." : "Post"}</button>
           </footer>
         ) : null}
       </div>

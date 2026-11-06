@@ -8,6 +8,7 @@ type ActivityRequest =
   | { type: "vibe" | "comment"; postId: string }
   | { type: "follow"; profileId: string }
   | { type: "message"; messageId: string }
+  | { type: "status"; statusId: string }
   | { type: "profile_view"; profileId: string };
 
 export async function POST(request: Request) {
@@ -40,7 +41,10 @@ export async function POST(request: Request) {
   if (activity.type === "message" && typeof activity.messageId !== "string") {
     return Response.json({ error: "Missing message ID." }, { status: 400 });
   }
-  if (!["vibe", "comment", "follow", "profile_view", "message"].includes(activity.type)) {
+  if (activity.type === "status" && typeof activity.statusId !== "string") {
+    return Response.json({ error: "Missing status ID." }, { status: 400 });
+  }
+  if (!["vibe", "comment", "follow", "profile_view", "message", "status"].includes(activity.type)) {
     return Response.json({ error: "Unsupported notification type." }, { status: 400 });
   }
 
@@ -53,7 +57,80 @@ export async function POST(request: Request) {
 
   let notificationId: string | null = null;
   let messageConversationId: string | null = null;
-  if (activity.type === "follow") {
+  if (activity.type === "status") {
+    const { data: status, error: statusError } = await admin
+      .from("statuses")
+      .select("id,user_id")
+      .eq("id", activity.statusId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (statusError) return Response.json({ error: "Could not verify status activity." }, { status: 500 });
+    if (!status) return Response.json({ sent: 0, skipped: true });
+
+    const { data: follows, error: followsError } = await admin
+      .from("follows")
+      .select("follower_id")
+      .eq("followed_id", user.id)
+      .neq("follower_id", user.id);
+    if (followsError) return Response.json({ error: "Could not load status followers." }, { status: 500 });
+
+    const recipients = [...new Set((follows ?? []).map((follow) => follow.follower_id as string))];
+    if (!recipients.length) return Response.json({ sent: 0, skipped: true });
+    const { error: insertError } = await admin.from("notifications").upsert(
+      recipients.map((recipientId) => ({
+        recipient_id: recipientId,
+        actor_id: user.id,
+        type: "status",
+        status_id: status.id,
+      })),
+      { onConflict: "recipient_id,status_id", ignoreDuplicates: true }
+    );
+    if (insertError) return Response.json({ error: "Could not create status notifications." }, { status: 500 });
+
+    const { data: notifications, error: notificationsError } = await admin
+      .from("notifications")
+      .select("id,recipient_id,actor_id,status_id")
+      .eq("status_id", status.id)
+      .eq("actor_id", user.id)
+      .is("push_sent_at", null);
+    if (notificationsError) return Response.json({ error: "Could not load status notifications." }, { status: 500 });
+
+    const { data: actor, error: actorError } = await admin.from("profiles").select("name,username").eq("id", user.id).maybeSingle();
+    if (actorError) return Response.json({ error: "Could not load status sender." }, { status: 500 });
+    let sent = 0;
+    for (const notification of notifications ?? []) {
+      const { data: subscriptions, error: subscriptionsError } = await admin
+        .from("push_subscriptions")
+        .select("endpoint,p256dh,auth")
+        .eq("user_id", notification.recipient_id);
+      if (subscriptionsError) return Response.json({ error: "Could not load push subscriptions." }, { status: 500 });
+
+      const { data: claimed, error: claimError } = await admin
+        .from("notifications")
+        .update({ push_sent_at: new Date().toISOString() })
+        .eq("id", notification.id)
+        .is("push_sent_at", null)
+        .select("id")
+        .maybeSingle();
+      if (claimError) return Response.json({ error: "Could not claim status notification delivery." }, { status: 500 });
+      if (!claimed) continue;
+
+      try {
+        const sender = actor?.name || (actor?.username ? `@${actor.username}` : "Someone");
+        const result = await sendPushNotifications(admin, subscriptions ?? [], {
+          title: "New status",
+          body: `${sender} shared a status.`,
+          url: `/inbox?status=${status.id}`,
+          tag: `status-${status.id}`,
+        });
+        sent += result.sent;
+      } catch {
+        await admin.from("notifications").update({ push_sent_at: null }).eq("id", notification.id);
+        return Response.json({ error: "Push notification delivery failed." }, { status: 503 });
+      }
+    }
+    return Response.json({ sent, total: (notifications ?? []).length });
+  } else if (activity.type === "follow") {
     if (activity.profileId === user.id) return Response.json({ sent: 0, skipped: true });
 
     const { data: follow, error: followError } = await admin
@@ -173,7 +250,7 @@ export async function POST(request: Request) {
 
   const { data: notification, error: notificationError } = await admin
     .from("notifications")
-    .select("id,recipient_id,actor_id,type,post_id")
+    .select("id,recipient_id,actor_id,type,post_id,status_id")
     .eq("id", notificationId)
     .maybeSingle();
   if (notificationError) return Response.json({ error: "Could not load notification." }, { status: 500 });
@@ -197,6 +274,7 @@ export async function POST(request: Request) {
     comment: { title: "New comment", body: `${sender} commented on your post.` },
     profile_view: { title: "Profile visit", body: `${sender} viewed your profile.` },
     message: { title: "New message", body: `${sender} sent you a message.` },
+    status: { title: "New status", body: `${sender} shared a status.` },
   };
   const details = messages[notification.type];
   if (!details) return Response.json({ error: "Unsupported notification type." }, { status: 500 });
@@ -206,6 +284,8 @@ export async function POST(request: Request) {
       ? `/p/${notification.post_id}`
       : notification.type === "message"
         ? "/inbox"
+        : notification.type === "status" && notification.status_id
+          ? `/inbox?status=${notification.status_id}`
         : notification.type === "follow" && actor?.username
           ? `/${actor.username}`
           : "/notifications",

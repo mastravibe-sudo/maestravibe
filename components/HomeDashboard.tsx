@@ -3,17 +3,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Bell, Search, ShoppingBag } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentUser } from "@/components/CurrentUserContext";
 import DbFeed from "@/components/DbFeed";
-import GetAppButton from "@/components/GetAppButton";
+import SpaceBackground from "@/components/SpaceBackground";
 import { requestActivityPush } from "@/lib/notifications/client";
 
 type ProfileSummary = { id: string; username: string; name: string | null; bio: string | null; avatar_url: string | null };
 
-const panel = "rounded-xl border border-white/[0.06] bg-[#141028] p-3";
-const toolBtn = "inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#1d1840] text-[#e4e0ff] hover:bg-[#25205a]";
+const panel = "rounded-xl border border-white/[0.06] bg-[#110f2e] p-3";
 
 function Avatar({ person, size = "h-12 w-12" }: { person: ProfileSummary; size?: string }) {
   return (
@@ -76,7 +74,6 @@ export default function HomeDashboard() {
     setBusyId(null);
   };
 
-  const profileCompletion = profile ? Math.round(([profile.name, profile.bio, profile.avatar_url].filter(Boolean).length / 3) * 100) : 0;
   const followBtn = (person: ProfileSummary) =>
     userId ? (
       <button disabled={busyId === person.id} onClick={() => void follow(person)} className="min-h-10 shrink-0 rounded-md border border-white/10 px-3 text-xs font-medium text-[#c9c4e8] hover:border-fuchsia-300 hover:text-violet-200 disabled:opacity-50">
@@ -118,50 +115,12 @@ export default function HomeDashboard() {
   );
 
   return (
-    <main data-mode="dark" className="mx-auto min-h-screen max-w-6xl px-3 py-5 pb-24 text-[#f4f2ff] sm:px-5 sm:py-7">
-      <header className="mb-4 flex items-center gap-3">
-        <Link href="/" className="flex flex-1 items-center gap-3 md:hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/maestravibe.png" alt="Maestra Vibe logo" className="h-11 w-11 rounded-xl object-cover" />
-          <span className="text-xl font-bold">Maestra <span className="text-violet-300">Vibe</span></span>
-        </Link>
-        <h1 className="hidden flex-1 text-2xl font-bold md:block">{profile?.name ? `Welcome back, ${profile.name}` : "Home"}</h1>
-        <Link href="/search" aria-label="Search" className={toolBtn}><Search className="h-5 w-5" aria-hidden="true" /></Link>
-        <Link href="/notifications" aria-label="Notifications" className={toolBtn}><Bell className="h-5 w-5" aria-hidden="true" /></Link>
-        <GetAppButton />
-      </header>
-
+    <main data-mode="dark" className="relative isolate mx-auto min-h-[calc(100dvh-3.5rem)] max-w-6xl bg-[#07061a] px-2 py-2 pb-20 text-[#f4f2ff] sm:px-5 sm:py-4">
+      <SpaceBackground />
+      <div className="relative z-10">
       {error ? <p role="alert" className="mb-4 rounded-lg border border-amber-400/20 bg-amber-950/30 p-3 text-sm text-amber-100">{error}</p> : null}
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="min-w-0 space-y-4">
-          <DbFeed circleCard={circleCard} discoverCard={discoverCard} />
-        </div>
-
-        <aside className="hidden space-y-4 xl:sticky xl:top-6 xl:block">
-          {profile ? (
-            <section className={panel}>
-              <div className="flex items-center gap-3">
-                <Link href={`/${profile.username}`}><Avatar person={profile} size="h-11 w-11" /></Link>
-                <div className="min-w-0"><p className="truncate text-sm font-semibold text-[#f4f2ff]">{profile.name || profile.username}</p><p className="truncate text-xs text-[#a8a2c9]">@{profile.username}</p></div>
-              </div>
-              <div className="mt-4 flex items-center justify-between text-xs"><span className="text-[#a8a2c9]">Profile completion</span><span className="font-medium text-violet-600">{profileCompletion}%</span></div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#1d1840]"><div className="h-full rounded-full bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500" style={{ width: `${profileCompletion}%` }} /></div>
-              <Link href={`/${profile.username}?edit=1`} className="mt-4 block rounded-lg bg-[#1d1840] px-3 py-2 text-center text-xs font-medium text-[#e4e0ff] hover:bg-[#25205a]">Edit profile</Link>
-            </section>
-          ) : !loading ? (
-            <section className={panel}>
-              <h2 className="text-sm font-semibold text-[#f4f2ff]">Join your community</h2>
-              <p className="mt-2 text-xs leading-relaxed text-[#a8a2c9]">Create a profile to follow people and share updates.</p>
-              <Link href="/login" className="mt-4 block rounded-lg bg-linear-to-r from-violet-600 via-fuchsia-500 to-blue-500 px-3 py-2 text-center text-xs font-semibold text-white hover:bg-blue-500">Log in or sign up</Link>
-            </section>
-          ) : null}
-
-          <nav aria-label="Explore" className="grid grid-cols-2 gap-2 text-xs">
-            <Link href="/notifications" className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#141028] px-3 py-3 text-[#e4e0ff] shadow-sm hover:bg-[#141028]/5"><Bell className="h-4 w-4" aria-hidden="true" />Notifications</Link>
-            <Link href="/market" className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#141028] px-3 py-3 text-[#e4e0ff] shadow-sm hover:bg-[#141028]/5"><ShoppingBag className="h-4 w-4" aria-hidden="true" />Maestra Market</Link>
-          </nav>
-        </aside>
+      <DbFeed circleCard={circleCard} discoverCard={discoverCard} />
       </div>
     </main>
   );

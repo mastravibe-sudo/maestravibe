@@ -2,6 +2,7 @@
 // Profile ke upar wale card ke 30 styles (10 layouts x 3 skins) aur profile picture ki 20 shapes.
 // Sirf allow-list wale IDs save hote hain, koi bhi user-text CSS mein nahi jata.
 import type { CSSProperties, ReactNode } from "react";
+import { Camera } from "lucide-react";
 import type { ProfileTheme } from "@/lib/profile-schema";
 
 export const HEADER_LAYOUTS = [
@@ -70,17 +71,36 @@ export function AvatarShape({ src, name, shape, ring, size, accent }: { src?: st
 
 type HeaderProfile = { name?: string | null; username: string; avatar_url?: string | null; banner_url?: string | null; theme: ProfileTheme };
 
-export function HeaderBlock({ profile, style, action }: { profile: HeaderProfile; style: Record<string, unknown>; action?: ReactNode }) {
+export function HeaderBlock({
+  profile,
+  style,
+  action,
+  onAvatarClick,
+}: {
+  profile: HeaderProfile;
+  style: Record<string, unknown>;
+  action?: ReactNode;
+  onAvatarClick?: () => void;
+}) {
   const { layout } = parseHeaderStyle(style.headerStyle);
   const shape = shapeOf(style.avatarShape).id;
   const ring = ringOf(style.avatarRing).id;
   const t = profile.theme;
   const display = profile.name || profile.username;
-  const av = (size: number) => <AvatarShape src={profile.avatar_url} name={display} shape={shape} ring={ring} size={size} accent={t.accent} />;
+  const av = (size: number) => (
+    <span className="relative inline-flex shrink-0">
+      <AvatarShape src={profile.avatar_url} name={display} shape={shape} ring={ring} size={size} accent={t.accent} />
+      {onAvatarClick ? (
+        <button type="button" onClick={onAvatarClick} aria-label="Change profile picture" className="absolute bottom-0 right-0 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#07061a] bg-violet-600 text-white shadow-lg hover:bg-violet-500">
+          <Camera className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+    </span>
+  );
   const nameEl = (size = "1.55em", cls = "") => <h1 className={`truncate font-bold ${cls}`} style={{ fontFamily: t.fontHeading, fontSize: size }}>{display}</h1>;
   const userEl = <p className="truncate opacity-70">@{profile.username}</p>;
   const cover = (
-    <div className="min-h-10 flex-[0_0_52%] overflow-hidden rounded-lg" style={{ background: `linear-gradient(135deg, ${t.accent}, ${t.pageAlt})` }}>
+    <div className="relative min-h-10 flex-[0_0_52%] overflow-hidden rounded-lg" style={{ background: `linear-gradient(135deg, ${t.accent}, ${t.pageAlt})` }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       {profile.banner_url ? <img src={profile.banner_url} alt="" className="h-full w-full object-cover" /> : null}
     </div>
