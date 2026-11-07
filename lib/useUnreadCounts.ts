@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { subscribeWithRecovery } from "@/lib/supabase/realtime";
 
@@ -29,6 +30,7 @@ function syncBadge(count: number) {
 }
 
 export function useUnreadCounts(userId: string | null, enabled = true) {
+  const pathname = usePathname();
   const [notificationCounts, setNotificationCounts] = useState(EMPTY_COUNTS);
   const [unreadMessages, setUnreadMessages] = useState(0);
 
@@ -122,7 +124,7 @@ export function useUnreadCounts(userId: string | null, enabled = true) {
       document.removeEventListener("visibilitychange", refreshOnFocus);
       unsubscribe();
     };
-  }, [enabled, userId]);
+  }, [enabled, pathname, userId]);
 
   return { notificationCounts, unreadMessages };
 }

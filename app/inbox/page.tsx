@@ -64,8 +64,6 @@ export default function InboxPage() {
   const currentUser = useCurrentUser();
   const userId = currentUser.userId;
   const [summaries, setSummaries] = useState<InboxSummary[]>([]);
-  const summariesRef = useRef(summaries);
-  summariesRef.current = summaries;
   const [people, setPeople] = useState<Record<string, Person>>({});
   const [friends, setFriends] = useState<Person[]>([]);
   const [suggestions, setSuggestions] = useState<Person[]>([]);
@@ -107,10 +105,7 @@ export default function InboxPage() {
   const chunksRef = useRef<Blob[]>([]);
   const recordingHeldRef = useRef(false);
   const recordingStartingRef = useRef(false);
-  const selectedConversationRef = useRef<string | null>(null);
-  const loadSummariesRef = useRef<() => Promise<void>>(async () => undefined);
   const selectedSummary = summaries.find((summary) => summary.conversation_id === selectedConversationId) ?? null;
-  selectedConversationRef.current = selectedConversationId;
   const otherId = selectedSummary
     ? selectedSummary.participant_one === userId ? selectedSummary.participant_two : selectedSummary.participant_one
     : null;
@@ -191,7 +186,6 @@ export default function InboxPage() {
     }
     setLoading(false);
   }, [supabase, userId]);
-  loadSummariesRef.current = loadSummaries;
 
   const loadMessages = useCallback(async (conversationId: string) => {
     let cachedRows: Message[] = [];
@@ -337,50 +331,21 @@ export default function InboxPage() {
       supabase,
       channelName: `inbox-${userId}`,
       configure: (channel) => channel
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
-        const row = payload.new as Partial<Message>;
-        if (!row.id || !row.conversation_id || !row.sender_id || !row.created_at) return;
-        const incoming = row as Message;
-        const selected = selectedConversationRef.current;
-        if (!summariesRef.current.some((summary) => summary.conversation_id === incoming.conversation_id)) {
-          void loadSummariesRef.current();
-        }
-        setSummaries((current) => current.map((summary) => summary.conversation_id !== incoming.conversation_id ? summary : {
-          ...summary,
-          last_message_at: incoming.created_at,
-          last_body: incoming.body,
-          last_image_url: incoming.image_url,
-          last_sender_id: incoming.sender_id,
-          unread_count: summary.unread_count + (incoming.sender_id !== userId && selected !== incoming.conversation_id ? 1 : 0),
-        }).sort((left, right) => right.last_message_at.localeCompare(left.last_message_at)));
-        if (selected === incoming.conversation_id) {
-          void saveCachedMessages([incoming]).catch((cacheError: unknown) => {
-            setError(cacheError instanceof Error ? cacheError.message : "Could not save chat history on this device.");
-          });
-          setMessages((current) => {
-            if (current.some((message) => message.id === incoming.id)) return current;
-            const pendingIndex = incoming.sender_id === userId
-              ? current.findIndex((message) => message.id.startsWith("pending:") && message.sender_id === userId && message.body === incoming.body)
-              : -1;
-            const next = [...current];
-            if (pendingIndex >= 0) next[pendingIndex] = incoming;
-            else next.push(incoming);
-            return next.sort((left, right) => left.created_at.localeCompare(right.created_at));
-          });
-        }
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+        const row = (payload.new ?? payload.old) as Partial<Message>;
+        if (row.conversation_id === selectedConversationId && selectedConversationId) void loadMessages(selectedConversationId);
+        void loadSummaries();
       })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "message_reads" }, (payload) => {
-        const row = payload.new as { conversation_id?: string; reader_id?: string };
-        if (row.reader_id !== userId || !row.conversation_id) return;
-        setSummaries((current) => current.map((summary) => summary.conversation_id === row.conversation_id
-          ? { ...summary, unread_count: Math.max(0, summary.unread_count - 1) }
-          : summary));
+      .on("postgres_changes", { event: "*", schema: "public", table: "message_reads" }, (payload) => {
+        const row = (payload.new ?? payload.old) as { conversation_id?: string };
+        if (row.conversation_id === selectedConversationId && selectedConversationId) void loadMessages(selectedConversationId);
+        void loadSummaries();
       }),
       onDisconnected: () => setRealtimeDisconnected(true),
       onReconnected: () => setRealtimeDisconnected(false),
     });
     return unsubscribe;
-  }, [supabase, userId]);
+  }, [loadMessages, loadSummaries, selectedConversationId, supabase, userId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -696,41 +661,17 @@ export default function InboxPage() {
       setError("Send a photo and a voice message separately.");
       return;
     }
-    const conversationId = selectedConversationId;
-    const selectedImage = imageFile;
-    const selectedVoice = voiceFile;
-    const text = draft.trim();
-    const body = text || (selectedVoice ? "Voice message" : selectedImage ? "Photo" : "");
-    const pendingId = `pending:${crypto.randomUUID()}`;
-    const createdAt = new Date().toISOString();
-    const optimistic: Message = {
-      id: pendingId,
-      conversation_id: conversationId,
-      sender_id: userId,
-      body,
-      image_url: selectedImage ? imagePreview : null,
-      voice_url: selectedVoice ? voicePreview : null,
-      created_at: createdAt,
-    };
-    const priorSummary = summariesRef.current.find((summary) => summary.conversation_id === conversationId);
-    setMessages((current) => [...current, optimistic]);
-    setSummaries((current) => current.map((summary) => summary.conversation_id === conversationId ? {
-      ...summary,
-      last_message_at: createdAt,
-      last_body: body,
-      last_image_url: selectedImage ? imagePreview : null,
-      last_sender_id: userId,
-    } : summary).sort((left, right) => right.last_message_at.localeCompare(left.last_message_at)));
     setSending(true);
     setError(null);
     try {
-      const compressedImage = selectedImage ? await compressImage(selectedImage, 150 * 1024) : null;
+      const compressedImage = imageFile ? await compressImage(imageFile, 150 * 1024) : null;
       const [imageUrl, voiceUrl] = await Promise.all([
         compressedImage ? uploadChatImage(compressedImage) : Promise.resolve(null),
-        selectedVoice ? uploadChatVoice(selectedVoice) : Promise.resolve(null),
+        voiceFile ? uploadChatVoice(voiceFile) : Promise.resolve(null),
       ]);
+      const body = draft.trim() || (voiceFile ? "Voice message" : imageFile ? "Photo" : "");
       const { data: sentMessage, error: sendError } = await supabase.from("messages").insert({
-        conversation_id: conversationId,
+        conversation_id: selectedConversationId,
         sender_id: userId,
         body,
         image_url: imageUrl,
@@ -740,40 +681,27 @@ export default function InboxPage() {
       const savedMessage = sentMessage as Message;
       await saveCachedMessages([savedMessage]);
       if (compressedImage) await saveCachedMedia(savedMessage.id, compressedImage);
-      if (selectedVoice) await saveCachedMedia(savedMessage.id, selectedVoice);
-      const cachedBlob = compressedImage ?? selectedVoice;
-      if (cachedBlob) {
-        const mediaUrl = URL.createObjectURL(cachedBlob);
-        localMediaUrlsRef.current = { ...localMediaUrlsRef.current, [savedMessage.id]: mediaUrl };
-        setLocalMediaUrls(localMediaUrlsRef.current);
-      }
-      setMessages((current) => {
-        if (current.some((message) => message.id === savedMessage.id)) {
-          return current.filter((message) => message.id !== pendingId);
-        }
-        return current.map((message) => message.id === pendingId ? savedMessage : message);
-      });
-      setSummaries((current) => current.map((summary) => summary.conversation_id === conversationId ? {
-        ...summary,
-        last_message_at: savedMessage.created_at,
-        last_body: savedMessage.body,
-        last_image_url: savedMessage.image_url,
-        last_sender_id: savedMessage.sender_id,
-      } : summary).sort((left, right) => right.last_message_at.localeCompare(left.last_message_at)));
+      if (voiceFile) await saveCachedMedia(savedMessage.id, voiceFile);
       setDraft("");
       setImageFile(null);
       setImagePreview(null);
       setVoiceFile(null);
       setVoicePreview(null);
       setPicker(null);
-      void requestActivityPush({ type: "message", messageId: savedMessage.id }).then((pushError) => {
-        if (pushError) setError("Message sent, but its push notification could not be delivered.");
-      });
+      let pushWarning: string | null = null;
+      try {
+        const pushResponse = await fetch("/api/notifications/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "message", messageId: sentMessage.id }),
+        });
+        if (!pushResponse.ok) pushWarning = "Message sent, but its push notification could not be delivered.";
+      } catch {
+        pushWarning = "Message sent, but its push notification could not be delivered.";
+      }
+      await Promise.all([loadMessages(selectedConversationId), loadSummaries()]);
+      if (pushWarning) setError(pushWarning);
     } catch (sendFailure) {
-      setMessages((current) => current.filter((message) => message.id !== pendingId));
-      setSummaries((current) => current.map((summary) => summary.conversation_id === conversationId && summary.last_message_at === createdAt
-        ? priorSummary ?? summary
-        : summary));
       setError(sendFailure instanceof Error ? sendFailure.message : "Could not send this message.");
     } finally {
       setSending(false);

@@ -14,26 +14,12 @@ const stars = Array.from({ length: 42 }, (_, index) => ({
 export default function SpaceBackground() {
   const [paused, setPaused] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(true);
-  const [disabled, setDisabled] = useState(true);
 
   useEffect(() => {
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const userAgent = navigator.userAgent;
-    const isIOS = /iPhone|iPad|iPod/.test(userAgent)
-      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    const device = navigator as Navigator & {
-      deviceMemory?: number;
-      connection?: { saveData?: boolean; effectiveType?: string };
-    };
-    const lowPower = (device.deviceMemory !== undefined && device.deviceMemory <= 2)
-      || navigator.hardwareConcurrency <= 2
-      || device.connection?.saveData === true
-      || device.connection?.effectiveType === "2g";
     const update = () => {
-      const shouldDisable = isIOS || lowPower || motion.matches;
-      setDisabled(shouldDisable);
       setReducedMotion(motion.matches);
-      setPaused(document.visibilityState !== "visible" || shouldDisable);
+      setPaused(document.visibilityState !== "visible" || motion.matches);
     };
     update();
     motion.addEventListener("change", update);
@@ -43,8 +29,6 @@ export default function SpaceBackground() {
       document.removeEventListener("visibilitychange", update);
     };
   }, []);
-
-  if (disabled) return null;
 
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden opacity-45">
