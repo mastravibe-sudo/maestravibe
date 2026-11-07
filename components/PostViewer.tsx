@@ -1,11 +1,11 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { memo, useEffect, useRef, useState } from "react";
 import { Bookmark, Ellipsis, EyeOff, Flag, Flame, Heart, Link2, LockKeyhole, MapPin, MessageCircle, Repeat2, Send, Share2, Smile, Sticker, Trash2, X } from "lucide-react";
 import { EMOJIS, STICKERS, stickerOf, stickerToken } from "@/lib/stickers";
-import { typeMeta } from "@/components/postMeta";
 import { useOverlayHistory } from "@/lib/useOverlayHistory";
+import { typeMeta } from "@/components/postMeta";
 import { Avatar, ago, mediaOf, type Row } from "@/components/postUtils";
 import { activateVideo, deactivateVideo } from "@/lib/activeVideo";
 
@@ -145,7 +145,7 @@ function PostViewer({
         <button onClick={onClose} aria-label="Close post" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/45"><X className="h-5 w-5" /></button>
         <Link href={`/${author.username}`} className="flex min-w-0 flex-1 items-center gap-2">
           <Avatar p={author} size="h-10 w-10" />
-          <span className="min-w-0"><span className="block truncate text-sm font-semibold">{author.name || author.username}</span><span className="block truncate text-xs text-white/65">@{author.username} · {ago(row.created_at)}</span></span>
+          <span className="min-w-0"><span className="block truncate text-sm font-semibold">{author.name || author.username}</span><span className="block truncate text-xs text-white/65">@{author.username} Â· {ago(row.created_at)}</span></span>
         </Link>
         <div className="relative">
           <button onClick={() => setMenu((value) => !value)} aria-label="More post options" className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Ellipsis className="h-5 w-5" /></button>
@@ -170,7 +170,7 @@ function PostViewer({
 
       {media[0]?.type === "video" && showPlaybackIcon ? (
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-          <span className="rounded-full bg-black/55 p-5 text-white/95">{playing ? <span className="block h-8 w-8 text-2xl leading-8">Ⅱ</span> : <span className="block h-8 w-8 text-center text-2xl leading-8">▶</span>}</span>
+          <span className="rounded-full bg-black/55 p-5 text-white/95">{playing ? <span className="block h-8 w-8 text-2xl leading-8">â…¡</span> : <span className="block h-8 w-8 text-center text-2xl leading-8">â–¶</span>}</span>
         </div>
       ) : null}
 
@@ -246,3 +246,4 @@ function PostViewer({
 }
 
 export default memo(PostViewer);
+
