@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Flame, HandHeart, MessageCircle, Share2, Volume2, VolumeX, X } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HandHeart, Heart, MessageCircle, Share2, X } from "lucide-react";
 import { useOverlayHistory } from "@/lib/useOverlayHistory";
 import { activateVideo, deactivateVideo } from "@/lib/activeVideo";
 import { Avatar, mediaOf, type Row } from "@/components/postUtils";
 
-const rail = "flex h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-full bg-black/40 px-2 text-xs text-white backdrop-blur active:scale-95";
+const rail = "flex h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-full bg-black/40 px-2 text-xs text-white active:scale-95";
 
-export default function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOpen, onShare, onWatch, onNearEnd, loadingMore, hasMore, inline = false, onFollow, onSave }: {
+type LikeOverride = { liked: boolean; delta: number; kind: string };
+
+function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOpen, onShare, onWatch, onNearEnd, loadingMore, hasMore, inline = false, onFollow, onSave, likeOverrides = {}, likePopId }: {
   rows: Row[];
   me: string | null;
   initialId?: string | null;
@@ -24,11 +26,14 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
   inline?: boolean;
   onFollow?: (row: Row) => void;
   onSave?: (row: Row) => void;
+  likeOverrides?: Record<string, LikeOverride>;
+  likePopId?: string | null;
 }) {
   useOverlayHistory(onClose, !inline);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(inline);
   const [activeIndex, setActiveIndex] = useState(() => Math.max(0, initialIndex ?? rows.findIndex((row) => row.id === initialId)));
   const [pausedId, setPausedId] = useState<string | null>(null);
+  const [heartBurstSlot, setHeartBurstSlot] = useState<number | null>(null);
   const playableRows = useMemo(() => {
     if (!rows.length) return [];
     const minimumLength = Math.max(5, rows.length);
@@ -46,7 +51,11 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
   const manuallyPaused = useRef(new Set<string>());
   const wheelLocked = useRef(false);
   const wheelTimer = useRef<number | null>(null);
+  const lastVideoTap = useRef<{ id: string; at: number } | null>(null);
+  const heartBurstTimer = useRef<number | null>(null);
   const initialIdApplied = useRef(false);
+  const pendingNextRowId = useRef<string | null>(null);
+  const previousPlayableRows = useRef(playableRows);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
@@ -106,6 +115,7 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
         deactivateVideo(video);
       });
       if (wheelTimer.current !== null) window.clearTimeout(wheelTimer.current);
+      if (heartBurstTimer.current !== null) window.clearTimeout(heartBurstTimer.current);
       if (!inline) document.body.style.overflow = previousOverflow;
     };
   }, [goTo, inline]);
@@ -119,8 +129,23 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
     const requestedIndex = !initialIdApplied.current
       ? initialIndex ?? (initialId ? playableRows.findIndex(({ row }) => row.id === initialId) : -1)
       : -1;
-    const nextIndex = requestedIndex >= 0 ? requestedIndex : Math.min(activeIndexRef.current, playableRows.length - 1);
+    const previousRowId = previousPlayableRows.current[activeIndexRef.current]?.row.id;
+    const pendingRowId = pendingNextRowId.current;
+    const targetRowId = pendingRowId ?? previousRowId;
+    const matchingIndices = targetRowId
+      ? playableRows.flatMap(({ row }, index) => row.id === targetRowId ? [index] : [])
+      : [];
+    const nearestIndex = matchingIndices.reduce((nearest, index) =>
+      Math.abs(index - activeIndexRef.current) < Math.abs(nearest - activeIndexRef.current) ? index : nearest,
+    matchingIndices[0] ?? 0);
+    const nextIndex = requestedIndex >= 0
+      ? requestedIndex
+      : matchingIndices.length
+        ? nearestIndex
+        : Math.min(activeIndexRef.current, playableRows.length - 1);
     initialIdApplied.current = true;
+    pendingNextRowId.current = null;
+    previousPlayableRows.current = playableRows;
     activeIndexRef.current = nextIndex;
     setActiveIndex(nextIndex);
     const element = container.current;
@@ -140,7 +165,6 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
     activateVideo(activeVideo);
     void activeVideo.play().catch(() => undefined);
     setPausedId(null);
-    watchedRef.current(activeVideo.dataset.postId ?? "");
   }, [activeIndex, playableRows]);
 
   useEffect(() => {
@@ -169,6 +193,11 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
     if (!start || !touch) return;
     const deltaY = start.y - touch.clientY;
     const deltaX = start.x - touch.clientX;
+    const activeVideo = videos.current[activeIndexRef.current];
+    if (activeVideo) {
+      activeVideo.muted = false;
+      setMuted(false);
+    }
     if (Math.abs(deltaX) > 100 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
       onClose();
       return;
@@ -180,6 +209,8 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
     const video = videos.current[activeIndexRef.current];
     if (!video) return;
     const rowId = video.dataset.postId ?? "";
+    video.muted = false;
+    setMuted(false);
     if (video.paused) {
       manuallyPaused.current.delete(rowId);
       activateVideo(video);
@@ -193,11 +224,32 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
     }
   };
 
+  const handleVideoTap = (row: Row, slot: number) => {
+    const now = Date.now();
+    const previousTap = lastVideoTap.current;
+    if (previousTap?.id === row.id && now - previousTap.at < 320) {
+      lastVideoTap.current = null;
+      const activeVideo = videos.current[activeIndexRef.current];
+      if (activeVideo?.paused && manuallyPaused.current.has(row.id)) {
+        manuallyPaused.current.delete(row.id);
+        activateVideo(activeVideo);
+        void activeVideo.play().catch(() => undefined);
+        setPausedId(null);
+      }
+      const liked = likeOverrides[row.id]?.liked ?? (!!me && row.vibes.some((vibe) => vibe.user_id === me));
+      if (!liked) onVibe(row);
+      setHeartBurstSlot(slot);
+      if (heartBurstTimer.current !== null) window.clearTimeout(heartBurstTimer.current);
+      heartBurstTimer.current = window.setTimeout(() => setHeartBurstSlot(null), 520);
+      return;
+    }
+    lastVideoTap.current = { id: row.id, at: now };
+    togglePlayback();
+  };
+
   return (
     <div className={inline ? "relative h-[calc(100dvh-13rem)] min-h-[400px] overflow-hidden rounded-2xl bg-black sm:h-[min(78dvh,900px)]" : "fixed inset-0 z-[55] bg-black"} role="dialog" aria-modal={!inline || undefined} aria-label="Shorts">
       {!inline ? <button onClick={onClose} aria-label="Close shorts" className="absolute left-3 top-3 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white"><X className="h-6 w-6" /></button> : null}
-      <button onClick={() => setMuted((value) => !value)} aria-label={muted ? "Unmute" : "Mute"} className="absolute right-3 top-3 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white">{muted ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}</button>
-
       {rows.length === 0 ? (
         <p className="flex h-full items-center justify-center text-white/70">
           {loadingMore || hasMore ? "Loading videos…" : "No videos yet. Post the first one!"}
@@ -213,10 +265,13 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
           {playableRows.map(({ row, slot }) => {
             const shown = row.original ?? row;
             const media = mediaOf(shown)[0];
-            const liked = !!me && row.vibes.some((vibe) => vibe.user_id === me);
+            const loopDistance = Math.abs(slot - activeIndex);
+            const nearby = loopDistance <= 1;
+            const liked = likeOverrides[row.id]?.liked ?? (!!me && row.vibes.some((vibe) => vibe.user_id === me));
+            const vibeCount = Math.max(0, row.vibes.length + (likeOverrides[row.id]?.delta ?? 0));
             return (
-              <section key={`${row.id}:${slot}`} style={{ scrollSnapStop: "always" }} className="relative h-full min-h-0 w-full snap-start bg-black">
-                {media?.type === "video" ? (
+              <section key={`${row.id}:${slot}`} style={{ scrollSnapStop: "always", contentVisibility: "auto", containIntrinsicSize: "auto 100dvh" }} className="relative h-full min-h-0 w-full snap-start bg-black">
+                {media?.type === "video" && nearby ? (
                   <video
                     ref={(element) => { videos.current[slot] = element; }}
                     data-post-id={shown.id}
@@ -224,7 +279,7 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
                     poster={media.poster ?? media.thumbnail}
                     muted={muted}
                     playsInline
-                    preload={Math.abs(slot - activeIndex) <= 1 ? "auto" : "none"}
+                    preload={slot === activeIndex + 1 ? "metadata" : "none"}
                     onPlay={(event) => {
                       if (slot !== activeIndexRef.current) {
                         event.currentTarget.pause();
@@ -234,22 +289,32 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
                     }}
                     onEnded={() => {
                       watchedRef.current(shown.id);
+                      pendingNextRowId.current = playableRows[(activeIndexRef.current + 1) % playableRows.length]?.row.id ?? null;
                       goTo(activeIndexRef.current + 1);
+                      window.setTimeout(() => {
+                        pendingNextRowId.current = null;
+                      }, 250);
                     }}
-                    onClick={togglePlayback}
+                    onClick={() => handleVideoTap(row, slot)}
                     className="h-full w-full object-contain"
                   />
+                ) : media?.type === "video" ? (
+                  media.poster || media.thumbnail ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={media.poster ?? media.thumbnail} alt="" loading="lazy" className="h-full w-full object-contain" />
+                  ) : <div className="h-full w-full bg-black" />
                 ) : media ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={media.url} alt={shown.title || row.body || "Post"} className="h-full w-full object-contain" />
+                  <img src={media.url} alt={shown.title || row.body || "Post"} loading="lazy" className="h-full w-full object-contain" />
                 ) : null}
+                {heartBurstSlot === slot ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"><Heart className="h-28 w-28 scale-110 fill-pink-400 text-pink-200 drop-shadow-[0_0_24px_rgba(236,72,153,0.8)] transition-transform duration-300" /></div> : null}
                 {pausedId === row.id ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center"><span className="rounded-full bg-black/55 p-5 text-3xl text-white">▶</span></div> : null}
                 <div className="absolute bottom-20 right-3 z-[1] flex flex-col items-center gap-3 md:bottom-8">
                   <button type="button" onClick={() => onFollow?.(row)} aria-label={`Follow @${row.profiles.username}`} className="relative mb-1 flex h-12 w-12 items-center justify-center rounded-full border border-white/50 bg-black/35">
                     <Avatar p={row.profiles} size="h-11 w-11" />
                     {onFollow ? <span className="absolute -bottom-1 flex h-5 w-5 items-center justify-center rounded-full bg-linear-to-r from-[#7c3aed] to-[#2563eb] text-xs font-bold text-white">+</span> : null}
                   </button>
-                  <button onClick={() => onVibe(row)} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} ${liked ? "text-pink-300" : ""}`}>{row.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Flame className="h-6 w-6" />}{row.vibes.length}</button>
+                  <button onClick={() => onVibe(row)} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} transition-transform duration-200 active:scale-125 ${likePopId === row.id ? "scale-125" : ""} ${liked ? "text-pink-300" : ""}`}>{row.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Heart className={`h-6 w-6 ${liked ? "fill-current" : ""}`} />}{vibeCount}</button>
                   <button onClick={() => onOpen(row)} aria-label="Open comments" className={rail}><MessageCircle className="h-6 w-6" />{row.comments.length}</button>
                   {onSave ? <button onClick={() => onSave(row)} aria-label="Save post" className={rail}><span className="text-xl">▣</span>Save</button> : null}
                   <button onClick={() => onShare(row)} aria-label="Share" className={rail}><Share2 className="h-6 w-6" /></button>
@@ -269,3 +334,5 @@ export default function ShortsViewer({ rows, me, initialId, initialIndex, onClos
     </div>
   );
 }
+
+export default memo(ShortsViewer);

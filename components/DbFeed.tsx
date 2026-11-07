@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
-import { Bookmark, Clapperboard, ExternalLink, Flame, HandHeart, ImagePlus, MessageCircle, Play, Repeat2, Share2, ShoppingBag, Video } from "lucide-react";
+import { Bookmark, Clapperboard, ExternalLink, HandHeart, Heart, ImagePlus, MessageCircle, Play, Repeat2, Share2, ShoppingBag, Video } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { typeMeta } from "@/components/postMeta";
 import { Avatar, ago, mediaOf, type Orig, type Row } from "@/components/postUtils";
@@ -26,6 +26,7 @@ const card = "overflow-hidden rounded-xl border border-white/[0.06] bg-[#110f2e]
 const act = "flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-3 text-base text-[#c9c4e8] hover:bg-white/10 active:scale-95 disabled:opacity-40";
 const TABS = ["For You", "Following"] as const;
 const POSTS_PER_PAGE = 20;
+type LikeOverride = { liked: boolean; delta: number; kind: string };
 const isShortMedia = (r: Row) => {
   const media = mediaOf(r.original ?? r)[0];
   return media?.type === "video" || media?.type === "image";
@@ -50,6 +51,11 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   const [hidden, setHidden] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [likeOverrides, setLikeOverrides] = useState<Record<string, LikeOverride>>({});
+  const likeOverridesRef = useRef(likeOverrides);
+  likeOverridesRef.current = likeOverrides;
+  const [likePopId, setLikePopId] = useState<string | null>(null);
+  const [likeToast, setLikeToast] = useState("");
   const [products, setProducts] = useState<MarketProduct[]>([]);
   const [marketError, setMarketError] = useState("");
   const [loadingMorePosts, setLoadingMorePosts] = useState(false);
@@ -57,13 +63,21 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   const postsPage = useRef(0);
   const loadingPostsPage = useRef(false);
   const deepLinked = useRef(false);
+  const pendingLikes = useRef(new Set<string>());
+  const likeToastTimer = useRef<number | null>(null);
+  const likePopTimer = useRef<number | null>(null);
   const watchedKey = `mv-short-watched:${me ?? "guest"}`;
 
-  const flash = (t: string) => { setNote(t); setTimeout(() => setNote(""), 2200); };
-  const fail = (e: unknown) => {
+  const flash = useCallback((t: string) => { setNote(t); setTimeout(() => setNote(""), 2200); }, []);
+  const toastLikeError = useCallback((message: string) => {
+    setLikeToast(message);
+    if (likeToastTimer.current !== null) window.clearTimeout(likeToastTimer.current);
+    likeToastTimer.current = window.setTimeout(() => setLikeToast(""), 2600);
+  }, []);
+  const fail = useCallback((e: unknown) => {
     const m = (e as { message?: string })?.message ?? "Something went wrong.";
     setError(/row-level security|permission denied/i.test(m) ? "The author has limited this action on the post." : m);
-  };
+  }, []);
 
   const load = useCallback(async () => {
     const [authResult, postsResult] = await Promise.all([
@@ -105,6 +119,8 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
       list.forEach((r) => { r.original = r.repost_of ? map.get(r.repost_of) ?? null : null; });
     }
     setRows(list);
+    likeOverridesRef.current = {};
+    setLikeOverrides({});
     setLoading(false);
   }, [supabase]);
 
@@ -113,6 +129,11 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     void load();
     try { setHidden(JSON.parse(localStorage.getItem("mv-hidden") ?? "[]")); } catch { /* ignore */ }
   }, [load]);
+
+  useEffect(() => () => {
+    if (likeToastTimer.current !== null) window.clearTimeout(likeToastTimer.current);
+    if (likePopTimer.current !== null) window.clearTimeout(likePopTimer.current);
+  }, []);
 
   useEffect(() => {
     const refreshFeed = () => void load();
@@ -144,64 +165,101 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     if (id && rows.some((r) => r.id === id)) setOpenId(id);
   }, [rows]);
 
-  const run = async (job: PromiseLike<{ error: { message: string } | null }>) => {
+  const run = useCallback(async (job: PromiseLike<{ error: { message: string } | null }>) => {
     const { error: err } = await job;
     if (err) fail(err);
     await load();
-  };
-  const need = () => setError("Log in to do that.");
+  }, [fail, load]);
+  const need = useCallback(() => setError("Log in to do that."), []);
   const requestActivityPush = async (activity: { type: "vibe" | "comment"; postId: string }) => {
     const pushError = await sendActivityPush(activity);
     if (pushError) setError(pushError);
   };
 
-  const react = async (r: Row, kind: "vibe" | "support" | "inspire" = "vibe") => {
-    if (!me) return need();
+  const react = useCallback(async (r: Row, kind: "vibe" | "support" | "inspire" = "vibe") => {
+    if (!me) {
+      need();
+      return;
+    }
+    if (pendingLikes.current.has(r.id)) return;
+    pendingLikes.current.add(r.id);
     const mine = r.vibes.find((v) => v.user_id === me);
-    if (mine) {
-      const { error: e } = await supabase.from("vibes").delete().eq("post_id", r.id).eq("user_id", me);
-      if (e) return fail(e);
+    const previous = likeOverridesRef.current[r.id];
+    const wasLiked = previous?.liked ?? Boolean(mine);
+    const previousKind = previous?.kind ?? mine?.kind ?? "vibe";
+    const willLike = !wasLiked || previousKind !== kind;
+    const delta = (willLike ? 1 : 0) - (wasLiked ? 1 : 0);
+    const nextOverride = {
+      liked: willLike,
+      delta: (previous?.delta ?? 0) + delta,
+      kind,
+    };
+    likeOverridesRef.current = { ...likeOverridesRef.current, [r.id]: nextOverride };
+    setLikeOverrides((current) => ({ ...current, [r.id]: nextOverride }));
+    setLikePopId(r.id);
+    if (likePopTimer.current !== null) window.clearTimeout(likePopTimer.current);
+    likePopTimer.current = window.setTimeout(() => setLikePopId(null), 260);
+
+    try {
+      if (mine) {
+        const { error: deleteError } = await supabase.from("vibes").delete().eq("post_id", r.id).eq("user_id", me);
+        if (deleteError) throw deleteError;
+      }
+      if (willLike) {
+        const { error: insertError } = await supabase.from("vibes").insert({ post_id: r.id, user_id: me, kind });
+        if (insertError) throw insertError;
+        if (!wasLiked) {
+          void sendActivityPush({ type: "vibe", postId: r.id }).then((pushError) => {
+            if (pushError) toastLikeError(pushError);
+          });
+        }
+      }
+    } catch (likeError) {
+      const restored = { ...likeOverridesRef.current };
+      if (previous) restored[r.id] = previous;
+      else delete restored[r.id];
+      likeOverridesRef.current = restored;
+      setLikeOverrides(restored);
+      toastLikeError(likeError instanceof Error ? likeError.message : "Could not update your vibe.");
+    } finally {
+      pendingLikes.current.delete(r.id);
     }
-    if (!mine || (mine.kind ?? "vibe") !== kind) {
-      const { error: e } = await supabase.from("vibes").insert({ post_id: r.id, user_id: me, kind });
-      if (e) return fail(e);
-      void requestActivityPush({ type: "vibe", postId: r.id });
-    }
-    await load();
-  };
-  const vibe = (r: Row) => react(r, r.type === "struggle" ? "support" : "vibe");
-  const save = (r: Row) => !me ? need() : run(r.saves.some((s) => s.user_id === me) ? supabase.from("saves").delete().eq("post_id", r.id).eq("user_id", me) : supabase.from("saves").insert({ post_id: r.id, user_id: me }));
-  const repost = async (r: Row) => {
+  }, [me, need, supabase, toastLikeError]);
+  const vibe = useCallback((r: Row) => {
+    void react(r, r.type === "struggle" ? "support" : "vibe");
+  }, [react]);
+  const save = useCallback((r: Row) => !me ? need() : run(r.saves.some((s) => s.user_id === me) ? supabase.from("saves").delete().eq("post_id", r.id).eq("user_id", me) : supabase.from("saves").insert({ post_id: r.id, user_id: me })), [me, need, run, supabase]);
+  const repost = useCallback(async (r: Row) => {
     if (!me) return need();
     await run(supabase.from("posts").insert({ user_id: me, type: r.type, body: "", repost_of: r.repost_of ?? r.id }));
     flash("Reposted to your profile");
-  };
-  const comment = async (r: Row, body: string) => {
+  }, [flash, me, need, run, supabase]);
+  const comment = useCallback(async (r: Row, body: string) => {
     if (!me) return need();
     const { error: commentError } = await supabase.from("comments").insert({ post_id: r.id, user_id: me, body });
     if (commentError) return fail(commentError);
     void requestActivityPush({ type: "comment", postId: r.id });
     await load();
-  };
-  const hide = (r: Row) => {
+  }, [fail, load, me, need, supabase]);
+  const hide = useCallback((r: Row) => {
     const next = [...hidden, r.id];
     setHidden(next);
     try { localStorage.setItem("mv-hidden", JSON.stringify(next)); } catch { /* ignore */ }
-  };
-  const report = async (r: Row, reason: string) => {
+  }, [hidden]);
+  const report = useCallback(async (r: Row, reason: string) => {
     if (!me) return need();
     await run(supabase.from("reports").insert({ reporter_id: me, post_id: r.id, reason: reason.slice(0, 300) }));
     hide(r);
     flash("Thanks. We will review this post.");
-  };
-  const remove = async (r: Row) => { setOpenId(null); await run(supabase.from("posts").delete().eq("id", r.id)); };
-  const toggleComments = (r: Row) => run(supabase.from("posts").update({ comment_policy: r.comment_policy === "off" ? "everyone" : "off" }).eq("id", r.id));
-  const share = async (r: Row) => {
+  }, [flash, hide, me, need, run, supabase]);
+  const remove = useCallback(async (r: Row) => { setOpenId(null); await run(supabase.from("posts").delete().eq("id", r.id)); }, [run, supabase]);
+  const toggleComments = useCallback((r: Row) => run(supabase.from("posts").update({ comment_policy: r.comment_policy === "off" ? "everyone" : "off" }).eq("id", r.id)), [run, supabase]);
+  const share = useCallback(async (r: Row) => {
     const url = `${window.location.origin}/p/${r.id}`;
     if (navigator.share) { try { await navigator.share({ title: r.title || "Maestra Vibe", url }); return; } catch { /* user cancelled */ } }
     await navigator.clipboard?.writeText(url);
     flash("Link copied");
-  };
+  }, [flash]);
 
   const notHidden = useMemo(() => rows.filter((r) => !hidden.includes(r.id)), [rows, hidden]);
   const visible = useMemo(
@@ -243,11 +301,11 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     }
     return placements;
   }, [feedRows.length, products]);
-  const openShorts = (initialId: string | null = null) => {
+  const openShorts = useCallback((initialId: string | null = null) => {
     setInitialShortIndex(initialId ? shortsViewerRows.findIndex((row) => row.id === initialId) : 0);
     setInitialShortId(initialId);
     setShorts(true);
-  };
+  }, [shortsViewerRows]);
   const loadMorePosts = useCallback(async () => {
     if (loadingPostsPage.current || !hasMorePosts) return;
     loadingPostsPage.current = true;
@@ -284,15 +342,15 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
       setLoadingMorePosts(false);
     }
   }, [hasMorePosts, rows, supabase]);
-  const markShortWatched = (id: string) => {
+  const markShortWatched = useCallback((id: string) => {
     if (!id) return;
     const current = watched.key === watchedKey ? watched.ids : [];
     if (current.includes(id)) return;
     const ids = [...current, id];
     try { localStorage.setItem(watchedKey, JSON.stringify(ids)); } catch { /* retain history in memory */ }
     setWatched({ key: watchedKey, ids });
-  };
-  const followShortAuthor = async (row: Row) => {
+  }, [watched, watchedKey]);
+  const followShortAuthor = useCallback(async (row: Row) => {
     if (!me) {
       flash("Log in to follow creators.");
       return;
@@ -306,9 +364,30 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     setFollowing((current) => [...current, row.user_id]);
     const pushError = await sendActivityPush({ type: "follow", profileId: row.user_id });
     if (pushError) setError(pushError);
-  };
+  }, [flash, following, me, supabase]);
+  const openShortComments = useCallback((row: Row) => {
+    setOpenComments(true);
+    setOpenId(row.id);
+  }, []);
+  const closeShorts = useCallback(() => setShorts(false), []);
+  const noOp = useCallback(() => undefined, []);
   const openComposer = () => window.dispatchEvent(new Event("mv:open-composer"));
   const open = rows.find((r) => r.id === openId) ?? null;
+  const closePost = useCallback(() => {
+    setOpenId(null);
+    setOpenComments(false);
+  }, []);
+  const reactOpen = useCallback((kind: "vibe" | "support" | "inspire") => {
+    if (open) void react(open, kind);
+  }, [open, react]);
+  const saveOpen = useCallback(() => { if (open) void save(open); }, [open, save]);
+  const repostOpen = useCallback(() => { if (open) void repost(open); }, [open, repost]);
+  const shareOpen = useCallback(() => { if (open) void share(open); }, [open, share]);
+  const commentOpen = useCallback((body: string) => { if (open) void comment(open, body); }, [comment, open]);
+  const reportOpen = useCallback((reason: string) => { if (open) void report(open, reason); }, [open, report]);
+  const hideOpen = useCallback(() => { if (open) hide(open); }, [hide, open]);
+  const toggleCommentsOpen = useCallback(() => { if (open) void toggleComments(open); }, [open, toggleComments]);
+  const deleteOpen = useCallback(() => { if (open) void remove(open); }, [open, remove]);
 
   useEffect(() => {
     if (tab !== "Following" || loading || !hasMorePosts || !feedRows.length) return;
@@ -378,7 +457,8 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
         <Link href="/login" className={`${card} block p-4 text-center text-base text-[#c9c4e8] hover:bg-white/5`}>Log in or sign up to share your vibe</Link>
       ) : null}
 
-      <div className="sticky top-14 z-20 flex items-center gap-2 rounded-b-xl border-b border-white/[0.06] bg-[#07061a]/90 px-2 py-2 backdrop-blur">
+      {likeToast ? <p role="status" className="fixed bottom-24 left-1/2 z-[80] -translate-x-1/2 rounded-full border border-white/10 bg-[#211b3c] px-4 py-2 text-sm text-white shadow-xl">{likeToast}</p> : null}
+      <div className="sticky top-14 z-20 flex items-center gap-2 rounded-b-xl border-b border-white/[0.06] bg-[#07061a] px-2 py-2">
         <div className="flex flex-1 gap-1 rounded-full bg-[#110f2e] p-1" role="tablist" aria-label="Feed sections">
           {TABS.map((t) => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`h-10 flex-1 rounded-full text-sm font-medium ${tab === t ? "bg-linear-to-r from-[#7c3aed] to-[#2563eb] text-white shadow" : "text-[#c9c4e8]"}`}>{t}</button>)}
         </div>
@@ -390,16 +470,18 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
           inline
           rows={rankedShorts}
           me={me}
-          onClose={() => undefined}
-          onVibe={(row) => void vibe(row)}
-          onOpen={(row) => { setOpenComments(true); setOpenId(row.id); }}
-          onShare={(row) => void share(row)}
+          onClose={noOp}
+          likeOverrides={likeOverrides}
+          likePopId={likePopId}
+          onVibe={vibe}
+          onOpen={openShortComments}
+          onShare={share}
           onWatch={markShortWatched}
-          onNearEnd={() => void loadMorePosts()}
+          onNearEnd={loadMorePosts}
           loadingMore={loadingMorePosts}
           hasMore={hasMorePosts}
-          onFollow={(row) => void followShortAuthor(row)}
-          onSave={(row) => void save(row)}
+          onFollow={followShortAuthor}
+          onSave={save}
         />
       ) : null}
 
@@ -413,10 +495,12 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
         const shown = r.original ?? r;
         const m = mediaOf(shown)[0];
         const meta = typeMeta[r.type] ?? typeMeta.vibe;
-        const liked = !!me && r.vibes.some((v) => v.user_id === me);
+        const likeOverride = likeOverrides[r.id];
+        const liked = likeOverride?.liked ?? (!!me && r.vibes.some((v) => v.user_id === me));
+        const vibeCount = Math.max(0, r.vibes.length + (likeOverride?.delta ?? 0));
         const saved = !!me && r.saves.some((s) => s.user_id === me);
         return (
-          <div key={r.id} data-feed-post className="space-y-3">
+          <div key={r.id} data-feed-post className="space-y-3 [content-visibility:auto] [contain-intrinsic-size:auto_620px]">
           <article className={card}>
             <div className="h-1 w-full" style={{ background: `linear-gradient(90deg, ${meta.color}, #8b5cf6, #3b82f6)` }} />
             <div className="p-3 sm:p-3.5">
@@ -444,7 +528,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
                   <span className="relative mt-2.5 block overflow-hidden rounded-lg bg-black">
                     {m.type === "video" ? (
                       <>
-                        <video data-feed-video src={m.url} poster={m.poster ?? m.thumbnail} preload="metadata" muted playsInline className="max-h-[70vh] w-full object-cover" />
+                        <video data-feed-video src={m.url} poster={m.poster ?? m.thumbnail} preload="none" muted playsInline className="max-h-[70vh] w-full object-cover" />
                         <span className="absolute inset-0 flex items-center justify-center"><span className="rounded-full bg-black/60 p-5 text-white"><Play className="h-8 w-8" /></span></span>
                       </>
                     ) : (
@@ -456,7 +540,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
               </button>
 
               <footer className="-mx-2 mt-3 flex items-center">
-                <button onClick={() => void vibe(r)} className={`${act} ${liked ? "font-semibold text-pink-300" : ""}`} aria-label={r.type === "struggle" ? "Support" : "Vibe"}>{r.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Flame className="h-6 w-6" />}{r.vibes.length}</button>
+                <button onClick={() => vibe(r)} className={`${act} transition-transform duration-200 active:scale-125 ${likePopId === r.id ? "scale-125" : ""} ${liked ? "font-semibold text-pink-300" : ""}`} aria-label={r.type === "struggle" ? "Support" : "Vibe"}>{r.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Heart className={`h-6 w-6 ${liked ? "fill-current" : ""}`} />}{vibeCount}</button>
                 <button onClick={() => { setOpenComments(true); setOpenId(r.id); }} className={act} aria-label="Comments"><MessageCircle className="h-6 w-6" />{r.comments.length}</button>
                 <button onClick={() => void repost(r)} disabled={r.share_policy === "nobody" && r.user_id !== me} className={act} aria-label="Repost"><Repeat2 className="h-6 w-6" /></button>
                 <button onClick={() => void share(r)} className={act} aria-label="Share"><Share2 className="h-6 w-6" /></button>
@@ -476,7 +560,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
                   const shortMedia = mediaOf(short.original ?? short)[0];
                   return (
                     <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-lg bg-black text-left sm:w-32">
-                      {shortMedia.type === "video" ? <video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : <img src={shortMedia.url} alt="" loading="lazy" className="h-full w-full object-cover" />}
+                      {shortMedia.type === "video" ? <video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="none" className="h-full w-full object-cover" /> : <img src={shortMedia.url} alt="" loading="lazy" className="h-full w-full object-cover" />}
                       <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 text-xs font-semibold text-white">@{short.profiles.username}</span>
                     </button>
                   );
@@ -521,7 +605,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
               <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1">
                 {shortsAt.get(index + 1)?.map((short) => {
                   const shortMedia = mediaOf(short.original ?? short)[0];
-                  return <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-lg bg-black text-left sm:w-32">{shortMedia.type === "video" ? <video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : <img src={shortMedia.url} alt="" loading="lazy" className="h-full w-full object-cover" />}<span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 text-xs font-semibold text-white">@{short.profiles.username}</span></button>;
+                  return <button key={short.id} onClick={() => openShorts(short.id)} className="relative aspect-[9/14] w-28 shrink-0 snap-start overflow-hidden rounded-lg bg-black text-left sm:w-32">{shortMedia.type === "video" ? <video data-feed-video src={shortMedia.url} poster={shortMedia.poster ?? shortMedia.thumbnail} muted playsInline preload="none" className="h-full w-full object-cover" /> : <img src={shortMedia.url} alt="" loading="lazy" className="h-full w-full object-cover" />}<span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 text-xs font-semibold text-white">@{short.profiles.username}</span></button>;
                 })}
               </div>
             </section>
@@ -530,13 +614,13 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
         );
       })}
 
-      {shorts ? <ShortsViewer rows={shortsViewerRows} me={me} initialId={initialShortId} initialIndex={initialShortIndex} onClose={() => setShorts(false)} onVibe={(r) => void vibe(r)} onOpen={(r) => { setOpenComments(true); setOpenId(r.id); }} onShare={(r) => void share(r)} onWatch={markShortWatched} onNearEnd={() => void loadMorePosts()} loadingMore={loadingMorePosts} hasMore={hasMorePosts} onFollow={(r) => void followShortAuthor(r)} onSave={(r) => void save(r)} /> : null}
+      {shorts ? <ShortsViewer rows={shortsViewerRows} me={me} initialId={initialShortId} initialIndex={initialShortIndex} likeOverrides={likeOverrides} likePopId={likePopId} onClose={closeShorts} onVibe={vibe} onOpen={openShortComments} onShare={share} onWatch={markShortWatched} onNearEnd={loadMorePosts} loadingMore={loadingMorePosts} hasMore={hasMorePosts} onFollow={followShortAuthor} onSave={save} /> : null}
       {open ? (
         <PostViewer
-          key={open.id} row={open} me={me} initialCommentsOpen={openComments} onClose={() => { setOpenId(null); setOpenComments(false); }}
-          onReact={(k) => void react(open, k)} onSave={() => void save(open)} onRepost={() => void repost(open)} onShare={() => void share(open)}
-          onComment={(b) => void comment(open, b)} onReport={(why) => void report(open, why)} onHide={() => hide(open)}
-          onToggleComments={() => void toggleComments(open)} onDelete={() => void remove(open)}
+          key={open.id} row={open} me={me} initialCommentsOpen={openComments} likeOverride={likeOverrides[open.id]} likePop={likePopId === open.id} onClose={closePost}
+          onReact={reactOpen} onSave={saveOpen} onRepost={repostOpen} onShare={shareOpen}
+          onComment={commentOpen} onReport={reportOpen} onHide={hideOpen}
+          onToggleComments={toggleCommentsOpen} onDelete={deleteOpen}
         />
       ) : null}
       </div>

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { Bookmark, Ellipsis, EyeOff, Flag, Flame, HandHeart, Link2, LockKeyhole, MapPin, MessageCircle, Repeat2, Send, Share2, Smile, Sticker, Trash2, Volume2, VolumeX, X } from "lucide-react";
+import { memo, useEffect, useRef, useState } from "react";
+import { Bookmark, Ellipsis, EyeOff, Flag, HandHeart, Heart, Link2, LockKeyhole, MapPin, MessageCircle, Repeat2, Send, Share2, Smile, Sticker, Trash2, X } from "lucide-react";
 import { EMOJIS, STICKERS, stickerOf, stickerToken } from "@/lib/stickers";
 import { typeMeta } from "@/components/postMeta";
 import { useOverlayHistory } from "@/lib/useOverlayHistory";
@@ -16,6 +16,8 @@ type Props = {
   row: Row;
   me: string | null;
   initialCommentsOpen?: boolean;
+  likeOverride?: { liked: boolean; delta: number; kind: string };
+  likePop?: boolean;
   onClose: () => void;
   onReact: (kind: "vibe" | "support" | "inspire") => void;
   onSave: () => void;
@@ -28,18 +30,17 @@ type Props = {
   onDelete: () => void;
 };
 
-const rail = "flex min-h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-full bg-black/40 px-2 text-xs text-white backdrop-blur active:scale-95";
+const rail = "flex min-h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-full bg-black/40 px-2 text-xs text-white active:scale-95";
 const menuItem = "flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-white/10";
 
-export default function PostViewer({
-  row, me, initialCommentsOpen = false, onClose, onReact, onSave, onRepost, onShare, onComment, onReport, onHide, onToggleComments, onDelete,
+function PostViewer({
+  row, me, initialCommentsOpen = false, likeOverride, likePop = false, onClose, onReact, onSave, onRepost, onShare, onComment, onReport, onHide, onToggleComments, onDelete,
 }: Props) {
   useOverlayHistory(onClose);
   const [draft, setDraft] = useState("");
   const [tray, setTray] = useState<"emoji" | "sticker" | null>(null);
   const [menu, setMenu] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(initialCommentsOpen);
-  const [muted, setMuted] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [showPlaybackIcon, setShowPlaybackIcon] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -54,7 +55,8 @@ export default function PostViewer({
   const closed = row.comments_closed || row.comment_policy === "off";
   const TypeIcon = (typeMeta[row.type] ?? typeMeta.vibe).Icon;
   const comments = [...row.comments].sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.created_at.localeCompare(b.created_at));
-  const liked = !!me && row.vibes.some((vibe) => vibe.user_id === me);
+  const liked = likeOverride?.liked ?? (!!me && row.vibes.some((vibe) => vibe.user_id === me));
+  const vibeCount = Math.max(0, row.vibes.length + (likeOverride?.delta ?? 0));
   useOverlayHistory(() => setCommentsOpen(false), commentsOpen);
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export default function PostViewer({
       activateVideo(video);
       void video.play().catch(() => undefined);
     }
+
     return () => {
       if (video) {
         video.pause();
@@ -101,6 +104,7 @@ export default function PostViewer({
   const togglePlayback = () => {
     const video = videoRef.current;
     if (!video) return;
+    video.muted = false;
     if (video.paused) {
       activateVideo(video);
       void video.play().catch(() => undefined);
@@ -120,7 +124,7 @@ export default function PostViewer({
           poster={media[0].poster ?? media[0].thumbnail}
           autoPlay
           loop
-          muted={muted}
+          muted={false}
           playsInline
           onPlay={(event) => { activateVideo(event.currentTarget); setPlaying(true); }}
           onPause={() => setPlaying(false)}
@@ -129,7 +133,7 @@ export default function PostViewer({
         />
       ) : media[0] ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={media[0].url} alt="" className="absolute inset-0 h-full w-full object-contain" />
+        <img src={media[0].url} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain" />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center overflow-y-auto p-8 text-center">
           <p className="max-w-2xl whitespace-pre-wrap text-2xl font-semibold">{shown.body}</p>
@@ -138,14 +142,13 @@ export default function PostViewer({
 
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/85" />
       <header className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 p-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:p-5">
-        <button onClick={onClose} aria-label="Close post" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/45 backdrop-blur"><X className="h-5 w-5" /></button>
+        <button onClick={onClose} aria-label="Close post" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/45"><X className="h-5 w-5" /></button>
         <Link href={`/${author.username}`} className="flex min-w-0 flex-1 items-center gap-2">
           <Avatar p={author} size="h-10 w-10" />
           <span className="min-w-0"><span className="block truncate text-sm font-semibold">{author.name || author.username}</span><span className="block truncate text-xs text-white/65">@{author.username} · {ago(row.created_at)}</span></span>
         </Link>
-        {media[0]?.type === "video" ? <button onClick={() => setMuted((value) => !value)} aria-label={muted ? "Unmute video" : "Mute video"} className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 backdrop-blur">{muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}</button> : null}
         <div className="relative">
-          <button onClick={() => setMenu((value) => !value)} aria-label="More post options" className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 backdrop-blur"><Ellipsis className="h-5 w-5" /></button>
+          <button onClick={() => setMenu((value) => !value)} aria-label="More post options" className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Ellipsis className="h-5 w-5" /></button>
           {menu ? (
             <div className="absolute right-0 top-12 z-30 w-56 rounded-xl border border-white/10 bg-[#171426] p-1 shadow-xl">
               <button className={menuItem} onClick={() => { onShare(); setMenu(false); }}><Link2 className="h-4 w-4" />Copy link</button>
@@ -167,7 +170,7 @@ export default function PostViewer({
 
       {media[0]?.type === "video" && showPlaybackIcon ? (
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-          <span className="rounded-full bg-black/55 p-5 text-white/95 backdrop-blur">{playing ? <span className="block h-8 w-8 text-2xl leading-8">Ⅱ</span> : <span className="block h-8 w-8 text-center text-2xl leading-8">▶</span>}</span>
+          <span className="rounded-full bg-black/55 p-5 text-white/95">{playing ? <span className="block h-8 w-8 text-2xl leading-8">Ⅱ</span> : <span className="block h-8 w-8 text-center text-2xl leading-8">▶</span>}</span>
         </div>
       ) : null}
 
@@ -182,7 +185,7 @@ export default function PostViewer({
           {row.original ? <p className="mt-2 text-xs text-white/65"><Repeat2 className="mr-1 inline h-3.5 w-3.5" />Reposted from @{row.original.profiles.username}</p> : null}
         </div>
         <div className="flex shrink-0 flex-col items-center gap-3">
-          <button onClick={() => onReact(row.type === "struggle" ? "support" : "vibe")} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} ${liked ? "text-pink-300" : ""}`}>{row.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Flame className="h-6 w-6" />}{row.vibes.length}</button>
+          <button onClick={() => onReact(row.type === "struggle" ? "support" : "vibe")} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} transition-transform duration-200 active:scale-125 ${likePop ? "scale-125" : ""} ${liked ? "text-pink-300" : ""}`}>{row.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Heart className={`h-6 w-6 ${liked ? "fill-current" : ""}`} />}{vibeCount}</button>
           <button onClick={() => setCommentsOpen(true)} aria-label="Open comments" className={rail}><MessageCircle className="h-6 w-6" />{comments.length}</button>
           <button onClick={onRepost} disabled={row.share_policy === "nobody" && !mine} aria-label="Repost" className={rail}><Repeat2 className="h-6 w-6" /></button>
           <button onClick={onShare} aria-label="Share" className={rail}><Share2 className="h-6 w-6" /></button>
@@ -241,3 +244,5 @@ export default function PostViewer({
     </div>
   );
 }
+
+export default memo(PostViewer);
