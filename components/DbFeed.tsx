@@ -1,17 +1,17 @@
-// path: maestra-vibe/components/DbFeed.tsx  (poori file replace karo)
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
-import { Bookmark, Clapperboard, ExternalLink, HandHeart, Heart, ImagePlus, MessageCircle, Play, Repeat2, Share2, ShoppingBag, Video } from "lucide-react";
+import { Bookmark, Clapperboard, ExternalLink, Flame, ImagePlus, MessageCircle, Play, Repeat2, Share2, ShoppingBag, Video } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { typeMeta } from "@/components/postMeta";
 import { Avatar, ago, mediaOf, type Orig, type Row } from "@/components/postUtils";
 import { diversifyFeed, rankVideos } from "@/lib/feed/rank";
 import { requestActivityPush as sendActivityPush } from "@/lib/notifications/client";
 import { activateVideo, deactivateVideo, hasActiveVideo, isVideoActive } from "@/lib/activeVideo";
+
 
 const ShortsViewer = dynamic(() => import("@/components/ShortsViewer"), { loading: () => null });
 const PostViewer = dynamic(() => import("@/components/PostViewer"), { loading: () => null });
@@ -540,8 +540,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
               </button>
 
               <footer className="-mx-2 mt-3 flex items-center">
-                <button onClick={() => vibe(r)} className={`${act} transition-transform duration-200 active:scale-125 ${likePopId === r.id ? "scale-125" : ""} ${liked ? "font-semibold text-pink-300" : ""}`} aria-label={r.type === "struggle" ? "Support" : "Vibe"}>{r.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Heart className={`h-6 w-6 ${liked ? "fill-current" : ""}`} />}{vibeCount}</button>
-                <button onClick={() => { setOpenComments(true); setOpenId(r.id); }} className={act} aria-label="Comments"><MessageCircle className="h-6 w-6" />{r.comments.length}</button>
+<button onClick={() => vibe(r)} className={`${act} transition-transform duration-200 active:scale-125 ${likePopId === r.id ? "scale-125" : ""} ${liked ? "font-semibold text-pink-300" : ""}`} aria-label={r.type === "struggle" ? "Support" : "Vibe"}><Flame className={`h-6 w-6 ${liked ? "fill-current text-pink-400" : ""}`} />{vibeCount}</button>                <button onClick={() => { setOpenComments(true); setOpenId(r.id); }} className={act} aria-label="Comments"><MessageCircle className="h-6 w-6" />{r.comments.length}</button>
                 <button onClick={() => void repost(r)} disabled={r.share_policy === "nobody" && r.user_id !== me} className={act} aria-label="Repost"><Repeat2 className="h-6 w-6" /></button>
                 <button onClick={() => void share(r)} className={act} aria-label="Share"><Share2 className="h-6 w-6" /></button>
                 <button onClick={() => void save(r)} className={`${act} ml-auto ${saved ? "text-yellow-500" : ""}`} aria-label="Save"><Bookmark className={`h-6 w-6 ${saved ? "fill-current" : ""}`} /></button>
@@ -627,3 +626,5 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     </section>
   );
 }
+
+

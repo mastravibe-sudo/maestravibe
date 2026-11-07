@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { memo, useEffect, useRef, useState } from "react";
-import { Bookmark, Ellipsis, EyeOff, Flag, HandHeart, Heart, Link2, LockKeyhole, MapPin, MessageCircle, Repeat2, Send, Share2, Smile, Sticker, Trash2, X } from "lucide-react";
+import { Bookmark, Ellipsis, EyeOff, Flag, Flame, Heart, Link2, LockKeyhole, MapPin, MessageCircle, Repeat2, Send, Share2, Smile, Sticker, Trash2, X } from "lucide-react";
 import { EMOJIS, STICKERS, stickerOf, stickerToken } from "@/lib/stickers";
 import { typeMeta } from "@/components/postMeta";
 import { useOverlayHistory } from "@/lib/useOverlayHistory";
@@ -185,7 +185,7 @@ function PostViewer({
           {row.original ? <p className="mt-2 text-xs text-white/65"><Repeat2 className="mr-1 inline h-3.5 w-3.5" />Reposted from @{row.original.profiles.username}</p> : null}
         </div>
         <div className="flex shrink-0 flex-col items-center gap-3">
-          <button onClick={() => onReact(row.type === "struggle" ? "support" : "vibe")} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} transition-transform duration-200 active:scale-125 ${likePop ? "scale-125" : ""} ${liked ? "text-pink-300" : ""}`}>{row.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Heart className={`h-6 w-6 ${liked ? "fill-current" : ""}`} />}{vibeCount}</button>
+          <button onClick={() => onReact(row.type === "struggle" ? "support" : "vibe")} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} transition-transform duration-200 active:scale-125 ${likePop ? "scale-125" : ""} ${liked ? "text-pink-300" : ""}`}>{row.type === "struggle" ? <Flame className="h-6 w-6" /> : <Heart className={`h-6 w-6 ${liked ? "fill-current" : ""}`} />}{vibeCount}</button>
           <button onClick={() => setCommentsOpen(true)} aria-label="Open comments" className={rail}><MessageCircle className="h-6 w-6" />{comments.length}</button>
           <button onClick={onRepost} disabled={row.share_policy === "nobody" && !mine} aria-label="Repost" className={rail}><Repeat2 className="h-6 w-6" /></button>
           <button onClick={onShare} aria-label="Share" className={rail}><Share2 className="h-6 w-6" /></button>

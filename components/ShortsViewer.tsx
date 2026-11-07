@@ -1,10 +1,11 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HandHeart, Heart, MessageCircle, Share2, X } from "lucide-react";
+import { Flame, MessageCircle, Share2, X } from "lucide-react";
 import { useOverlayHistory } from "@/lib/useOverlayHistory";
 import { activateVideo, deactivateVideo } from "@/lib/activeVideo";
 import { Avatar, mediaOf, type Row } from "@/components/postUtils";
+
 
 const rail = "flex h-12 min-w-12 flex-col items-center justify-center gap-0.5 rounded-full bg-black/40 px-2 text-xs text-white active:scale-95";
 
@@ -307,14 +308,14 @@ function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOp
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={media.url} alt={shown.title || row.body || "Post"} loading="lazy" className="h-full w-full object-contain" />
                 ) : null}
-                {heartBurstSlot === slot ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"><Heart className="h-28 w-28 scale-110 fill-pink-400 text-pink-200 drop-shadow-[0_0_24px_rgba(236,72,153,0.8)] transition-transform duration-300" /></div> : null}
+                {heartBurstSlot === slot ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"><Flame className="h-28 w-28 scale-110 fill-pink-400 text-pink-200 drop-shadow-[0_0_24px_rgba(236,72,153,0.8)] transition-transform duration-300" /></div> : null}
                 {pausedId === row.id ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center"><span className="rounded-full bg-black/55 p-5 text-3xl text-white">▶</span></div> : null}
                 <div className="absolute bottom-20 right-3 z-[1] flex flex-col items-center gap-3 md:bottom-8">
                   <button type="button" onClick={() => onFollow?.(row)} aria-label={`Follow @${row.profiles.username}`} className="relative mb-1 flex h-12 w-12 items-center justify-center rounded-full border border-white/50 bg-black/35">
                     <Avatar p={row.profiles} size="h-11 w-11" />
                     {onFollow ? <span className="absolute -bottom-1 flex h-5 w-5 items-center justify-center rounded-full bg-linear-to-r from-[#7c3aed] to-[#2563eb] text-xs font-bold text-white">+</span> : null}
                   </button>
-                  <button onClick={() => onVibe(row)} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} transition-transform duration-200 active:scale-125 ${likePopId === row.id ? "scale-125" : ""} ${liked ? "text-pink-300" : ""}`}>{row.type === "struggle" ? <HandHeart className="h-6 w-6" /> : <Heart className={`h-6 w-6 ${liked ? "fill-current" : ""}`} />}{vibeCount}</button>
+                  <button onClick={() => onVibe(row)} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} transition-transform duration-200 active:scale-125 ${likePopId === row.id ? "scale-125" : ""} ${liked ? "text-pink-300" : ""}`}><Flame className={`h-6 w-6 ${liked ? "fill-current text-pink-400" : ""}`} />{vibeCount}</button>
                   <button onClick={() => onOpen(row)} aria-label="Open comments" className={rail}><MessageCircle className="h-6 w-6" />{row.comments.length}</button>
                   {onSave ? <button onClick={() => onSave(row)} aria-label="Save post" className={rail}><span className="text-xl">▣</span>Save</button> : null}
                   <button onClick={() => onShare(row)} aria-label="Share" className={rail}><Share2 className="h-6 w-6" /></button>
@@ -336,3 +337,5 @@ function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOp
 }
 
 export default memo(ShortsViewer);
+
+
