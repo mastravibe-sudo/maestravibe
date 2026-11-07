@@ -25,7 +25,6 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/screenshots/profile.png", sizes: "1080x1920", type: "image/png", form_factor: "narrow" },
     ],
     shortcuts: [
-      shortcuts: [
       { name: "Inbox", url: "/inbox", icons: [{ src: "/icon-192.png", sizes: "192x192" }] },
       { name: "Notifications", url: "/notifications", icons: [{ src: "/icon-192.png", sizes: "192x192" }] },
     ],
