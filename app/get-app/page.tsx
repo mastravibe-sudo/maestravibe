@@ -47,13 +47,11 @@ export default function GetAppPage() {
       </header>
 
       <div className="mt-5 flex justify-around rounded-2xl border border-white/10 bg-[#110f2e] py-3 text-center text-xs text-[#c9c4e8]">
-        <div><p className="text-base font-semibold text-white">Free</p>Price</div>
-        <div><p className="text-base font-semibold text-white">Social</p>Category</div>
-        <div><p className="text-base font-semibold text-white">4+</p>Age</div>
+        <div><p className="text-base font-semibold text-white">Secure</p>Login</div><div><p className="text-base font-semibold text-white">Social</p>Category</div><div><p className="text-base font-semibold text-white">No ads</p>Experience</div>
       </div>
 
       {installed ? (
-        <p className="mt-5 rounded-xl bg-white/5 p-4 text-center text-sm">App is already installed on this device.</p>
+        <p className="mt-5 rounded-xl bg-white/5 p-4 text-center text-sm">App is installed.</p><a href="/" className="mt-3 block h-14 rounded-full bg-linear-to-r from-[#7c3aed] to-[#2563eb] text-center text-base font-semibold leading-[3.5rem]">Open</a>
       ) : inApp ? (
         <p className="mt-5 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm">Open this page in Chrome or Safari to install the app.</p>
       ) : ios ? (
@@ -97,4 +95,5 @@ export default function GetAppPage() {
     </main>
   );
 }
+
 
