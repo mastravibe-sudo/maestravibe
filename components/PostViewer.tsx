@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { memo, useEffect, useRef, useState } from "react";
-import { Bookmark, Ellipsis, EyeOff, Flag, Flame, Heart, Link2, LockKeyhole, MapPin, MessageCircle, Repeat2, Send, Share2, Smile, Sticker, Trash2, X } from "lucide-react";
+import { Bookmark, Ellipsis, EyeOff, Flag, Flame, Link2, LockKeyhole, MapPin, MessageCircle, Repeat2, Send, Share2, Smile, Sticker, Trash2, X } from "lucide-react";
 import { EMOJIS, STICKERS, stickerOf, stickerToken } from "@/lib/stickers";
 import { useOverlayHistory } from "@/lib/useOverlayHistory";
 import { typeMeta } from "@/components/postMeta";
@@ -145,7 +145,7 @@ function PostViewer({
         <button onClick={onClose} aria-label="Close post" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/45"><X className="h-5 w-5" /></button>
         <Link href={`/${author.username}`} className="flex min-w-0 flex-1 items-center gap-2">
           <Avatar p={author} size="h-10 w-10" />
-          <span className="min-w-0"><span className="block truncate text-sm font-semibold">{author.name || author.username}</span><span className="block truncate text-xs text-white/65">@{author.username} Â· {ago(row.created_at)}</span></span>
+          <span className="min-w-0"><span className="block truncate text-sm font-semibold">{author.name || author.username}</span><span className="block truncate text-xs text-white/65">@{author.username} · {ago(row.created_at)}</span></span>
         </Link>
         <div className="relative">
           <button onClick={() => setMenu((value) => !value)} aria-label="More post options" className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45"><Ellipsis className="h-5 w-5" /></button>
@@ -170,7 +170,7 @@ function PostViewer({
 
       {media[0]?.type === "video" && showPlaybackIcon ? (
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-          <span className="rounded-full bg-black/55 p-5 text-white/95">{playing ? <span className="block h-8 w-8 text-2xl leading-8">â…¡</span> : <span className="block h-8 w-8 text-center text-2xl leading-8">â–¶</span>}</span>
+          <span className="rounded-full bg-black/55 p-5 text-white/95">{playing ? <span className="block h-8 w-8 text-center text-2xl leading-8">❚❚</span> : <span className="block h-8 w-8 text-center text-2xl leading-8">▶</span>}</span>
         </div>
       ) : null}
 
@@ -185,7 +185,7 @@ function PostViewer({
           {row.original ? <p className="mt-2 text-xs text-white/65"><Repeat2 className="mr-1 inline h-3.5 w-3.5" />Reposted from @{row.original.profiles.username}</p> : null}
         </div>
         <div className="flex shrink-0 flex-col items-center gap-3">
-          <button onClick={() => onReact(row.type === "struggle" ? "support" : "vibe")} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} transition-transform duration-200 active:scale-125 ${likePop ? "scale-125" : ""} ${liked ? "text-pink-300" : ""}`}>{row.type === "struggle" ? <Flame className="h-6 w-6" /> : <Heart className={`h-6 w-6 ${liked ? "fill-current" : ""}`} />}{vibeCount}</button>
+          <button onClick={() => onReact(row.type === "struggle" ? "support" : "vibe")} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} transition-transform duration-200 active:scale-125 ${likePop ? "scale-125" : ""} ${liked ? "text-pink-300" : ""}`}><Flame className={`h-6 w-6 ${liked ? "fill-current text-pink-400" : ""}`} />{vibeCount}</button>
           <button onClick={() => setCommentsOpen(true)} aria-label="Open comments" className={rail}><MessageCircle className="h-6 w-6" />{comments.length}</button>
           <button onClick={onRepost} disabled={row.share_policy === "nobody" && !mine} aria-label="Repost" className={rail}><Repeat2 className="h-6 w-6" /></button>
           <button onClick={onShare} aria-label="Share" className={rail}><Share2 className="h-6 w-6" /></button>
@@ -194,7 +194,7 @@ function PostViewer({
       </div>
 
       {commentsOpen ? (
-        <div className="absolute inset-0 z-20 flex items-end bg-black/45" onMouseDown={(event) => { if (event.target === event.currentTarget) setCommentsOpen(false); }}>
+        <div className="fixed inset-0 z-[90] flex items-end bg-black/45" onMouseDown={(event) => { if (event.target === event.currentTarget) setCommentsOpen(false); }}>
           <section aria-label="Comments" className="flex max-h-[78dvh] w-full flex-col rounded-t-3xl border border-white/10 bg-[#141028] pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl">
             <header className="flex min-h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
               <h2 className="text-sm font-semibold">Comments <span className="text-white/55">{comments.length}</span></h2>
