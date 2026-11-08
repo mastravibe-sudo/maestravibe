@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
@@ -15,6 +15,7 @@ import { activateVideo, deactivateVideo, hasActiveVideo, isVideoActive } from "@
 
 const ShortsViewer = dynamic(() => import("@/components/ShortsViewer"), { loading: () => null });
 const PostViewer = dynamic(() => import("@/components/PostViewer"), { loading: () => null });
+const CommentsSheet = dynamic(() => import("@/components/CommentsSheet"), { loading: () => null });
 
 const SELECT =
   "id,type,title,body,tags,location,media,image_url,created_at,user_id,comment_policy,comments_closed,share_policy,repost_of," +
@@ -48,12 +49,15 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
   const [watched, setWatched] = useState<{ key: string; ids: string[] }>({ key: "", ids: [] });
   const [openId, setOpenId] = useState<string | null>(null);
   const [openComments, setOpenComments] = useState(false);
+  const [commentsId, setCommentsId] = useState<string | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [likeOverrides, setLikeOverrides] = useState<Record<string, LikeOverride>>({});
   const likeOverridesRef = useRef(likeOverrides);
+  useLayoutEffect(() => {
   likeOverridesRef.current = likeOverrides;
+}, [likeOverrides]);
   const [likePopId, setLikePopId] = useState<string | null>(null);
   const [likeToast, setLikeToast] = useState("");
   const [products, setProducts] = useState<MarketProduct[]>([]);
@@ -234,13 +238,19 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     await run(supabase.from("posts").insert({ user_id: me, type: r.type, body: "", repost_of: r.repost_of ?? r.id }));
     flash("Reposted to your profile");
   }, [flash, me, need, run, supabase]);
+  const refreshRow = useCallback(async (id: string) => {
+    const { data, error: refreshError } = await supabase.from("posts").select(SELECT).eq("id", id).maybeSingle();
+    if (refreshError || !data) return;
+    const fresh = data as unknown as Row;
+    setRows((current) => current.map((r) => r.id === id ? { ...fresh, original: r.original } : r));
+  }, [supabase]);
   const comment = useCallback(async (r: Row, body: string) => {
     if (!me) return need();
     const { error: commentError } = await supabase.from("comments").insert({ post_id: r.id, user_id: me, body });
     if (commentError) return fail(commentError);
     void requestActivityPush({ type: "comment", postId: r.id });
-    await load();
-  }, [fail, load, me, need, supabase]);
+    await refreshRow(r.id);
+  }, [fail, me, need, refreshRow, supabase]);
   const hide = useCallback((r: Row) => {
     const next = [...hidden, r.id];
     setHidden(next);
@@ -341,7 +351,7 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
       loadingPostsPage.current = false;
       setLoadingMorePosts(false);
     }
-  }, [hasMorePosts, rows, supabase]);
+  }, [fail, hasMorePosts, rows, supabase]);
   const markShortWatched = useCallback((id: string) => {
     if (!id) return;
     const current = watched.key === watchedKey ? watched.ids : [];
@@ -364,15 +374,14 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
     setFollowing((current) => [...current, row.user_id]);
     const pushError = await sendActivityPush({ type: "follow", profileId: row.user_id });
     if (pushError) setError(pushError);
-  }, [flash, following, me, supabase]);
-  const openShortComments = useCallback((row: Row) => {
-    setOpenComments(true);
-    setOpenId(row.id);
-  }, []);
+  }, [fail, flash, following, me, supabase]);
+  const openShortComments = useCallback((row: Row) => setCommentsId(row.id), []);
+  const closeCommentsSheet = useCallback(() => setCommentsId(null), []);
   const closeShorts = useCallback(() => setShorts(false), []);
   const noOp = useCallback(() => undefined, []);
   const openComposer = () => window.dispatchEvent(new Event("mv:open-composer"));
   const open = rows.find((r) => r.id === openId) ?? null;
+  const commentsRow = rows.find((r) => r.id === commentsId) ?? null;
   const closePost = useCallback(() => {
     setOpenId(null);
     setOpenComments(false);
@@ -624,6 +633,9 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
           onComment={commentOpen} onReport={reportOpen} onHide={hideOpen}
           onToggleComments={toggleCommentsOpen} onDelete={deleteOpen}
         />
+      ) : null}
+      {commentsRow ? (
+        <CommentsSheet key={commentsRow.id} row={commentsRow} me={me} onClose={closeCommentsSheet} onComment={(body) => void comment(commentsRow, body)} />
       ) : null}
     </section>
   );

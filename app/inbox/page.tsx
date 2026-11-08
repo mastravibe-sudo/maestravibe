@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, CheckCheck, Download, ImagePlus, MessageCircle, Mic, Send, Smile, SquarePen, Sticker, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -10,6 +10,9 @@ import { subscribeWithRecovery } from "@/lib/supabase/realtime";
 import { compressImage } from "@/lib/media/compress";
 import { useCurrentUser } from "@/components/CurrentUserContext";
 import { requestActivityPush } from "@/lib/notifications/client";
+import dynamic from "next/dynamic";
+import type { EmojiClickData, EmojiStyle, Theme } from "emoji-picker-react";
+import { STICKERS, stickerOf, stickerToken } from "@/lib/stickers";
 import {
   createZip,
   getCachedMedia,
@@ -35,8 +38,10 @@ type Message = CachedMessage;
 const fieldClass = "w-full rounded-2xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-violet-400";
 const avatarLabel = (person: Person) => (person.name || person.username).slice(0, 1).toUpperCase();
 const formatMessageTime = (date: string) => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(date));
-const QUICK_EMOJIS = ["💜", "✨", "😊", "😂", "🥰", "🔥", "🪐", "🌙", "💫", "🫶"];
-const QUICK_STICKERS = ["💜✨", "🚀🌙", "🪐💫", "🫶🏽"];
+const EmojiPicker = dynamic(() => import("emoji-picker-react"), {
+  ssr: false,
+  loading: () => <div className="h-[340px] animate-pulse rounded-xl bg-white/[0.04]" />,
+});
 
 async function uploadChatImage(image: Blob) {
   const form = new FormData();
@@ -65,7 +70,9 @@ export default function InboxPage() {
   const userId = currentUser.userId;
   const [summaries, setSummaries] = useState<InboxSummary[]>([]);
   const summariesRef = useRef(summaries);
+  useLayoutEffect(() => {
   summariesRef.current = summaries;
+}, [summaries]);
   const [people, setPeople] = useState<Record<string, Person>>({});
   const [friends, setFriends] = useState<Person[]>([]);
   const [suggestions, setSuggestions] = useState<Person[]>([]);
@@ -94,6 +101,7 @@ export default function InboxPage() {
   const [error, setError] = useState<string | null>(null);
   const [realtimeDisconnected, setRealtimeDisconnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const draftRef = useRef<HTMLTextAreaElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const handledMessageRequest = useRef<string | null>(null);
   const localMediaUrlsRef = useRef<Record<string, string>>({});
@@ -110,7 +118,9 @@ export default function InboxPage() {
   const selectedConversationRef = useRef<string | null>(null);
   const loadSummariesRef = useRef<() => Promise<void>>(async () => undefined);
   const selectedSummary = summaries.find((summary) => summary.conversation_id === selectedConversationId) ?? null;
+  useLayoutEffect(() => {
   selectedConversationRef.current = selectedConversationId;
+}, [selectedConversationId]);
   const otherId = selectedSummary
     ? selectedSummary.participant_one === userId ? selectedSummary.participant_two : selectedSummary.participant_one
     : null;
@@ -191,7 +201,9 @@ export default function InboxPage() {
     }
     setLoading(false);
   }, [supabase, userId]);
+  useLayoutEffect(() => {
   loadSummariesRef.current = loadSummaries;
+}, [loadSummaries]);
 
   const loadMessages = useCallback(async (conversationId: string) => {
     let cachedRows: Message[] = [];
@@ -380,7 +392,7 @@ export default function InboxPage() {
       onReconnected: () => setRealtimeDisconnected(false),
     });
     return unsubscribe;
-  }, [supabase, userId]);
+  }, [loadSummaries, supabase, userId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -663,7 +675,7 @@ export default function InboxPage() {
       ];
       for (const message of history) {
         const sender = message.sender_id === userId ? "You" : otherPerson?.name || otherPerson?.username || "Other person";
-        transcript.push(`[${new Date(message.created_at).toLocaleString()}] ${sender}: ${message.body || (message.voice_url ? "Voice message" : message.image_url ? "Photo" : "")}`);
+        transcript.push(`[${new Date(message.created_at).toLocaleString()}] ${sender}: ${stickerOf(message.body) ? "Sticker" : message.body || (message.voice_url ? "Voice message" : message.image_url ? "Photo" : "")}`);
         const media = await getCachedMedia(message.id);
         if (media) {
           const extension = media.mimeType.includes("audio") ? "webm" : "webp";
@@ -690,16 +702,25 @@ export default function InboxPage() {
     }
   };
 
-  const sendMessage = async () => {
-    if (!userId || !selectedConversationId || (!draft.trim() && !imageFile && !voiceFile) || sending || recording) return;
-    if (imageFile && voiceFile) {
+  const insertEmoji = (emoji: string) => {
+    const el = draftRef.current;
+    const start = el?.selectionStart ?? draft.length;
+    const end = el?.selectionEnd ?? draft.length;
+    setDraft((draft.slice(0, start) + emoji + draft.slice(end)).slice(0, 4000));
+    requestAnimationFrame(() => el?.setSelectionRange(start + emoji.length, start + emoji.length));
+  };
+
+  const sendMessage = async (stickerBody?: string) => {
+    if (!userId || !selectedConversationId || sending || recording) return;
+    const selectedImage = stickerBody ? null : imageFile;
+    const selectedVoice = stickerBody ? null : voiceFile;
+    const text = (stickerBody ?? draft).trim();
+    if (!text && !selectedImage && !selectedVoice) return;
+    if (selectedImage && selectedVoice) {
       setError("Send a photo and a voice message separately.");
       return;
     }
     const conversationId = selectedConversationId;
-    const selectedImage = imageFile;
-    const selectedVoice = voiceFile;
-    const text = draft.trim();
     const body = text || (selectedVoice ? "Voice message" : selectedImage ? "Photo" : "");
     const pendingId = `pending:${crypto.randomUUID()}`;
     const createdAt = new Date().toISOString();
@@ -760,11 +781,13 @@ export default function InboxPage() {
         last_image_url: savedMessage.image_url,
         last_sender_id: savedMessage.sender_id,
       } : summary).sort((left, right) => right.last_message_at.localeCompare(left.last_message_at)));
-      setDraft("");
-      setImageFile(null);
-      setImagePreview(null);
-      setVoiceFile(null);
-      setVoicePreview(null);
+      if (!stickerBody) {
+        setDraft("");
+        setImageFile(null);
+        setImagePreview(null);
+        setVoiceFile(null);
+        setVoicePreview(null);
+      }
       setPicker(null);
       void requestActivityPush({ type: "message", messageId: savedMessage.id }).then((pushError) => {
         if (pushError) setError("Message sent, but its push notification could not be delivered.");
@@ -845,7 +868,7 @@ export default function InboxPage() {
             {summaries.map((summary) => {
               const personId = summary.participant_one === userId ? summary.participant_two : summary.participant_one;
               const person = people[personId];
-              const preview = summary.last_image_url ? "📷 Photo" : summary.last_body || "Start a conversation";
+              const preview = summary.last_image_url ? "📷 Photo" : stickerOf(summary.last_body ?? "") ? "Sticker" : summary.last_body || "Start a conversation";
               return (
                 <button key={summary.conversation_id} onClick={() => openConversation(summary.conversation_id, personId)} className={`flex w-full items-center gap-3 border-b border-white/[0.06] px-4 py-3.5 text-left transition hover:bg-white/[0.04] ${selectedConversationId === summary.conversation_id ? "bg-violet-400/[0.08]" : ""}`}>
                   <Avatar person={person} />
@@ -912,6 +935,7 @@ export default function InboxPage() {
                 const own = message.sender_id === userId;
                 const imageSrc = localMediaUrls[message.id] ?? message.image_url;
                 const voiceSrc = localMediaUrls[message.id] ?? message.voice_url;
+                const sticker = stickerOf(message.body);
                 return (
                   <div key={message.id} className={`mb-3 flex ${own ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[82%] rounded-3xl px-4 py-2.5 ${own ? "rounded-br-lg bg-violet-600 text-white" : "rounded-bl-lg border border-white/10 bg-zinc-900 text-zinc-100"}`}>
@@ -921,8 +945,12 @@ export default function InboxPage() {
                           <img src={imageSrc} alt="Shared image" className="mb-2 max-h-72 max-w-full rounded-2xl object-cover" />
                         </a>
                       ) : null}
+                      {sticker && !imageSrc && !voiceSrc ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={sticker.src} alt={sticker.label} className="h-28 w-28" />
+                      ) : null}
                       {voiceSrc ? <audio controls preload="metadata" src={voiceSrc} className="mb-2 max-w-full" aria-label="Voice message" /> : null}
-                      {message.body && !(voiceSrc && message.body === "Voice message") && !(imageSrc && message.body === "Photo")
+                      {message.body && !sticker && !(voiceSrc && message.body === "Voice message") && !(imageSrc && message.body === "Photo")
                         ? <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.body}</p>
                         : null}
                       <p className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${own ? "text-violet-100/70" : "text-zinc-500"}`}>
@@ -960,11 +988,28 @@ export default function InboxPage() {
                     <button type="button" onClick={() => setPicker("emoji")} className={`rounded-full px-3 py-1 text-xs ${picker === "emoji" ? "bg-violet-500 text-white" : "text-zinc-400"}`}>Emoji</button>
                     <button type="button" onClick={() => setPicker("sticker")} className={`rounded-full px-3 py-1 text-xs ${picker === "sticker" ? "bg-violet-500 text-white" : "text-zinc-400"}`}>Stickers</button>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {(picker === "emoji" ? QUICK_EMOJIS : QUICK_STICKERS).map((item) => (
-                      <button key={item} type="button" onClick={() => setDraft((current) => `${current}${item}`)} className="min-h-10 min-w-10 rounded-xl bg-white/[0.05] px-2 text-xl hover:bg-violet-500/20">{item}</button>
-                    ))}
-                  </div>
+                  {picker === "emoji" ? (
+                    <EmojiPicker
+                      onEmojiClick={(data: EmojiClickData) => insertEmoji(data.emoji)}
+                      theme={"dark" as unknown as Theme}
+                      emojiStyle={"native" as unknown as EmojiStyle}
+                      width="100%"
+                      height={340}
+                      lazyLoadEmojis
+                      autoFocusSearch={false}
+                      previewConfig={{ showPreview: false }}
+                      searchPlaceholder="Search emoji"
+                    />
+                  ) : (
+                    <div className="grid max-h-[340px] grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-6">
+                      {STICKERS.map((sticker) => (
+                        <button key={sticker.id} type="button" disabled={sending} aria-label={sticker.label} onClick={() => void sendMessage(stickerToken(sticker.id))} className="rounded-xl bg-white/[0.05] p-2 hover:bg-violet-500/20 disabled:opacity-40">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={sticker.src} alt="" className="mx-auto h-16 w-16" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : null}
               <div className="flex items-end gap-2">
@@ -972,7 +1017,7 @@ export default function InboxPage() {
                   <ImagePlus className="h-5 w-5" />
                   <input type="file" accept="image/*" className="sr-only" disabled={recording || Boolean(voiceFile)} onChange={(event) => { chooseImage(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
                 </label>
-                <button type="button" onClick={() => setPicker((current) => current === "emoji" ? null : "emoji")} aria-label="Emoji and stickers" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 text-zinc-300 hover:bg-white/5"><Smile className="h-5 w-5" /></button>
+                <button type="button" onClick={() => setPicker((current) => current ? null : "emoji")} aria-label="Emoji and stickers" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 text-zinc-300 hover:bg-white/5"><Smile className="h-5 w-5" /></button>
                 <button
                   type="button"
                   aria-label={recording ? "Release to finish recording" : "Hold to record a voice message"}
@@ -998,7 +1043,7 @@ export default function InboxPage() {
                   disabled={sending || Boolean(voiceFile) || Boolean(imageFile)}
                   className={`flex h-11 w-11 shrink-0 touch-none items-center justify-center rounded-full border ${recording ? "border-pink-300 bg-pink-500 text-white" : "border-white/10 text-zinc-300 hover:bg-white/5"} disabled:opacity-40`}
                 ><Mic className="h-5 w-5" /></button>
-                <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={1} maxLength={4000} placeholder="Message..." className="max-h-32 min-h-11 min-w-0 flex-1 resize-y rounded-3xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-violet-400" />
+                <textarea ref={draftRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={1} maxLength={4000} placeholder="Message..." className="max-h-32 min-h-11 min-w-0 flex-1 resize-y rounded-3xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-violet-400" />
                 <button onClick={() => void sendMessage()} disabled={sending || recording || (!draft.trim() && !imageFile && !voiceFile)} aria-label="Send message" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-violet-500 text-white transition hover:bg-violet-400 disabled:opacity-40">
                   <Send className="h-4 w-4" />
                 </button>

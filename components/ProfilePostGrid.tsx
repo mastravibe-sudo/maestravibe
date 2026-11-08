@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { Bookmark, Flame, Play } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -9,6 +9,8 @@ import type { ProfileRecord } from "@/lib/profile-schema";
 import { requestActivityPush } from "@/lib/notifications/client";
 
 const PostViewer = dynamic(() => import("@/components/PostViewer"), { loading: () => null });
+const ShortsViewer = dynamic(() => import("@/components/ShortsViewer"), { loading: () => null });
+const CommentsSheet = dynamic(() => import("@/components/CommentsSheet"), { loading: () => null });
 
 const SELECT =
   "id,type,title,body,tags,location,media,image_url,created_at,user_id,comment_policy,comments_closed,share_policy,repost_of," +
@@ -17,13 +19,27 @@ const SELECT =
 const ORIG = "id,title,body,image_url,media,profiles!posts_user_id_fkey(username,name,avatar_url)";
 type Tab = "Posts" | "Videos" | "Vibes";
 
+const NO_OVERRIDES: Record<string, { liked: boolean; delta: number; kind: string }> = {};
+const noop = () => undefined;
+const isVideoRow = (row: Row) => mediaOf(row.original ?? row)[0]?.type === "video";
+
 export default function ProfilePostGrid({ profile, viewerId }: { profile: ProfileRecord; viewerId: string | null }) {
   const [supabase] = useState(() => createClient());
   const [rows, setRows] = useState<Row[]>([]);
-  const [selected, setSelected] = useState<Row | null>(null);
+  // Selection is stored by id so viewers always render the freshest row
+  // (new comments / vibes show up without closing and reopening).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [videoStart, setVideoStart] = useState<{ id: string; index: number } | null>(null);
+  const [commentsId, setCommentsId] = useState<string | null>(null);
+  const [following, setFollowing] = useState<string[]>([]);
   const [tab, setTab] = useState<Tab>("Posts");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const selected = rows.find((row) => row.id === selectedId) ?? null;
+  const commentsRow = rows.find((row) => row.id === commentsId) ?? null;
+  // Only this profile's own grid items, in grid order (newest first).
+  const videoRows = useMemo(() => rows.filter(isVideoRow), [rows]);
 
   const load = useCallback(async () => {
     const { data, error: queryError } = await supabase
@@ -62,6 +78,25 @@ export default function ProfilePostGrid({ profile, viewerId }: { profile: Profil
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!viewerId) return;
+    let active = true;
+    void supabase.from("follows").select("followed_id").eq("follower_id", viewerId).then(({ data }) => {
+      if (active) setFollowing((data ?? []).map((entry) => entry.followed_id as string));
+    });
+    return () => { active = false; };
+  }, [supabase, viewerId]);
+
+  // Refresh a single post so the viewer keeps its position (a full reload
+  // would replace every row while the viewer is open).
+  const refreshRow = useCallback(async (id: string) => {
+    const { data, error: refreshError } = await supabase.from("posts").select(SELECT).eq("id", id).maybeSingle();
+    if (refreshError) { setError(refreshError.message); return; }
+    if (!data) { setRows((current) => current.filter((row) => row.id !== id)); return; }
+    const fresh = data as unknown as Row;
+    setRows((current) => current.map((row) => row.id === id ? { ...fresh, original: row.original } : row));
+  }, [supabase]);
+
   const filtered = rows.filter((row) => {
     const media = mediaOf(row.original ?? row)[0];
     if (tab === "Videos") return media?.type === "video";
@@ -69,59 +104,66 @@ export default function ProfilePostGrid({ profile, viewerId }: { profile: Profil
     return true;
   });
 
-  const react = async (kind: "vibe" | "support" | "inspire") => {
-    if (!selected || !viewerId) return;
-    const current = selected.vibes.find((vibe) => vibe.user_id === viewerId);
+  const openRow = (row: Row) => {
+    if (isVideoRow(row)) {
+      setVideoStart({ id: row.id, index: Math.max(0, videoRows.findIndex((video) => video.id === row.id)) });
+    } else {
+      setSelectedId(row.id);
+    }
+  };
+
+  const react = async (target: Row, kind: "vibe" | "support" | "inspire") => {
+    if (!viewerId) return;
+    const current = target.vibes.find((vibe) => vibe.user_id === viewerId);
     if (current) {
-      const { error: removeError } = await supabase.from("vibes").delete().eq("post_id", selected.id).eq("user_id", viewerId);
+      const { error: removeError } = await supabase.from("vibes").delete().eq("post_id", target.id).eq("user_id", viewerId);
       if (removeError) return setError(removeError.message);
     }
     if (!current || (current.kind ?? "vibe") !== kind) {
-      const { error: insertError } = await supabase.from("vibes").insert({ post_id: selected.id, user_id: viewerId, kind });
+      const { error: insertError } = await supabase.from("vibes").insert({ post_id: target.id, user_id: viewerId, kind });
       if (insertError) return setError(insertError.message);
-      const pushError = await requestActivityPush({ type: "vibe", postId: selected.id });
+      const pushError = await requestActivityPush({ type: "vibe", postId: target.id });
       if (pushError) setError(pushError);
     }
-    await load();
+    await refreshRow(target.id);
   };
-  const save = async () => {
-    if (!selected || !viewerId) return;
-    const saved = selected.saves.some((entry) => entry.user_id === viewerId);
+  const vibe = (target: Row) => { void react(target, target.type === "struggle" ? "support" : "vibe"); };
+  const save = async (target: Row) => {
+    if (!viewerId) return;
+    const saved = target.saves.some((entry) => entry.user_id === viewerId);
     const { error: saveError } = saved
-      ? await supabase.from("saves").delete().eq("post_id", selected.id).eq("user_id", viewerId)
-      : await supabase.from("saves").insert({ post_id: selected.id, user_id: viewerId });
+      ? await supabase.from("saves").delete().eq("post_id", target.id).eq("user_id", viewerId)
+      : await supabase.from("saves").insert({ post_id: target.id, user_id: viewerId });
     if (saveError) return setError(saveError.message);
-    await load();
+    await refreshRow(target.id);
   };
-  const repost = async () => {
-    if (!selected || !viewerId) return;
-    const { error: repostError } = await supabase.from("posts").insert({ user_id: viewerId, type: selected.type, body: "", repost_of: selected.repost_of ?? selected.id });
+  const repost = async (target: Row) => {
+    if (!viewerId) return;
+    const { error: repostError } = await supabase.from("posts").insert({ user_id: viewerId, type: target.type, body: "", repost_of: target.repost_of ?? target.id });
     if (repostError) setError(repostError.message);
   };
-  const share = async () => {
-    if (!selected) return;
-    const url = `${window.location.origin}/p/${selected.id}`;
+  const share = async (target: Row) => {
+    const url = `${window.location.origin}/p/${target.id}`;
     if (navigator.share) {
-      try { await navigator.share({ title: selected.title || "Maestra Vibe", url }); return; } catch { /* user cancelled */ }
+      try { await navigator.share({ title: target.title || "Maestra Vibe", url }); return; } catch { /* user cancelled */ }
     }
     await navigator.clipboard?.writeText(url);
   };
-  const comment = async (body: string) => {
-    if (!selected || !viewerId) return;
-    const { error: commentError } = await supabase.from("comments").insert({ post_id: selected.id, user_id: viewerId, body });
+  const comment = async (target: Row, body: string) => {
+    if (!viewerId) return;
+    const { error: commentError } = await supabase.from("comments").insert({ post_id: target.id, user_id: viewerId, body });
     if (commentError) return setError(commentError.message);
-    const pushError = await requestActivityPush({ type: "comment", postId: selected.id });
+    const pushError = await requestActivityPush({ type: "comment", postId: target.id });
     if (pushError) setError(pushError);
-    await load();
+    await refreshRow(target.id);
   };
-  const report = async (reason: string) => {
-    if (!selected || !viewerId) return;
-    const { error: reportError } = await supabase.from("reports").insert({ reporter_id: viewerId, post_id: selected.id, reason: reason.slice(0, 300) });
+  const report = async (target: Row, reason: string) => {
+    if (!viewerId) return;
+    const { error: reportError } = await supabase.from("reports").insert({ reporter_id: viewerId, post_id: target.id, reason: reason.slice(0, 300) });
     if (reportError) setError(reportError.message);
   };
-  const hide = () => {
-    if (!selected) return;
-    const hiddenId = selected.id;
+  const hide = (target: Row) => {
+    const hiddenId = target.id;
     setRows((current) => current.filter((row) => row.id !== hiddenId));
     try {
       const stored: unknown = JSON.parse(localStorage.getItem("mv-hidden") ?? "[]");
@@ -129,20 +171,28 @@ export default function ProfilePostGrid({ profile, viewerId }: { profile: Profil
       localStorage.setItem("mv-hidden", JSON.stringify([...new Set([...hidden, hiddenId])]));
     } catch { /* Post is hidden for this view even if storage is unavailable. */ }
   };
-  const toggleComments = async () => {
-    if (!selected || selected.user_id !== viewerId) return;
-    const { error: updateError } = await supabase.from("posts").update({ comment_policy: selected.comment_policy === "off" ? "everyone" : "off" }).eq("id", selected.id);
+  const toggleComments = async (target: Row) => {
+    if (target.user_id !== viewerId) return;
+    const { error: updateError } = await supabase.from("posts").update({ comment_policy: target.comment_policy === "off" ? "everyone" : "off" }).eq("id", target.id);
     if (updateError) setError(updateError.message);
-    else await load();
+    else await refreshRow(target.id);
   };
-  const remove = async () => {
-    if (!selected || selected.user_id !== viewerId) return;
-    const { error: deleteError } = await supabase.from("posts").delete().eq("id", selected.id);
+  const remove = async (target: Row) => {
+    if (target.user_id !== viewerId) return;
+    const { error: deleteError } = await supabase.from("posts").delete().eq("id", target.id);
     if (deleteError) setError(deleteError.message);
     else {
-      setSelected(null);
+      setSelectedId(null);
       await load();
     }
+  };
+  const followAuthor = async (target: Row) => {
+    if (!viewerId || target.user_id === viewerId || following.includes(target.user_id)) return;
+    const { error: followError } = await supabase.from("follows").insert({ follower_id: viewerId, followed_id: target.user_id });
+    if (followError) return setError(followError.message);
+    setFollowing((current) => [...current, target.user_id]);
+    const pushError = await requestActivityPush({ type: "follow", profileId: target.user_id });
+    if (pushError) setError(pushError);
   };
 
   return (
@@ -162,7 +212,7 @@ export default function ProfilePostGrid({ profile, viewerId }: { profile: Profil
             const shown = row.original ?? row;
             const media = mediaOf(shown)[0];
             return (
-              <button key={row.id} onClick={() => setSelected(row)} aria-label={`Open ${media?.type === "video" ? "video" : "post"}`} className="group relative aspect-square overflow-hidden bg-[#10101a] text-left">
+              <button key={row.id} onClick={() => openRow(row)} aria-label={`Open ${media?.type === "video" ? "video" : "post"}`} className="group relative aspect-square overflow-hidden bg-[#10101a] text-left">
                 {media?.type === "video" ? (
                   <>
                     <video src={media.url} poster={media.poster ?? media.thumbnail} muted playsInline preload="metadata" className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
@@ -187,20 +237,53 @@ export default function ProfilePostGrid({ profile, viewerId }: { profile: Profil
         </div>
       ) : <p className="py-16 text-center text-sm text-white/50">{tab === "Videos" ? "No videos yet." : tab === "Vibes" ? "No vibes yet." : "No posts yet."}</p>}
 
+      {videoStart && videoRows.length ? (
+        <ShortsViewer
+          rows={videoRows}
+          me={viewerId}
+          initialId={videoStart.id}
+          initialIndex={videoStart.index}
+          likeOverrides={NO_OVERRIDES}
+          likePopId={null}
+          onClose={() => setVideoStart(null)}
+          onVibe={vibe}
+          onOpen={(row: Row) => setCommentsId(row.id)}
+          onShare={share}
+          onWatch={noop}
+          onNearEnd={noop}
+          loadingMore={false}
+          hasMore={false}
+          onFollow={followAuthor}
+          onSave={save}
+          followingIds={following}
+        />
+      ) : null}
+
       {selected ? (
         <PostViewer
+          key={selected.id}
           row={selected}
           me={viewerId}
-          onClose={() => setSelected(null)}
-          onReact={(kind) => void react(kind)}
-          onSave={() => void save()}
-          onRepost={() => void repost()}
-          onShare={() => void share()}
-          onComment={(body) => void comment(body)}
-          onReport={(reason) => void report(reason)}
-          onHide={hide}
-          onToggleComments={() => void toggleComments()}
-          onDelete={() => void remove()}
+          onClose={() => setSelectedId(null)}
+          onReact={(kind) => void react(selected, kind)}
+          onSave={() => void save(selected)}
+          onRepost={() => void repost(selected)}
+          onShare={() => void share(selected)}
+          onComment={(body) => void comment(selected, body)}
+          onReport={(reason) => void report(selected, reason)}
+          onHide={() => hide(selected)}
+          onToggleComments={() => void toggleComments(selected)}
+          onDelete={() => void remove(selected)}
+        />
+      ) : null}
+
+      {commentsRow ? (
+        <CommentsSheet
+          key={commentsRow.id}
+          row={commentsRow}
+          me={viewerId}
+          onClose={() => setCommentsId(null)}
+          onComment={(body) => void comment(commentsRow, body)}
         />
       ) : null}
     </section>
