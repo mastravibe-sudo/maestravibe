@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Flame, MessageCircle, Share2, X } from "lucide-react";
 import { useOverlayHistory } from "@/lib/useOverlayHistory";
 import { activateVideo, deactivateVideo } from "@/lib/activeVideo";
@@ -11,7 +12,7 @@ const rail = "flex h-12 min-w-12 flex-col items-center justify-center gap-0.5 ro
 
 type LikeOverride = { liked: boolean; delta: number; kind: string };
 
-function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOpen, onShare, onWatch, onNearEnd, loadingMore, hasMore, inline = false, onFollow, onSave, likeOverrides = {}, likePopId }: {
+function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOpen, onShare, onWatch, onNearEnd, loadingMore, hasMore, inline = false, onFollow, onSave, followingIds = [], likeOverrides = {}, likePopId }: {
   rows: Row[];
   me: string | null;
   initialId?: string | null;
@@ -27,6 +28,7 @@ function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOp
   inline?: boolean;
   onFollow?: (row: Row) => void;
   onSave?: (row: Row) => void;
+  followingIds?: string[];
   likeOverrides?: Record<string, LikeOverride>;
   likePopId?: string | null;
 }) {
@@ -270,6 +272,9 @@ function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOp
             const nearby = loopDistance <= 1;
             const liked = likeOverrides[row.id]?.liked ?? (!!me && row.vibes.some((vibe) => vibe.user_id === me));
             const vibeCount = Math.max(0, row.vibes.length + (likeOverrides[row.id]?.delta ?? 0));
+            const isFollowing = followingIds.includes(row.user_id);
+            const showFollow = !!onFollow && !isFollowing && row.user_id !== me;
+            const saved = !!me && row.saves.some((x) => x.user_id === me);
             return (
               <section key={`${row.id}:${slot}`} style={{ scrollSnapStop: "always", contentVisibility: "auto", containIntrinsicSize: "auto 100dvh" }} className="relative h-full min-h-0 w-full snap-start bg-black">
                 {media?.type === "video" && nearby ? (
@@ -311,17 +316,14 @@ function ShortsViewer({ rows, me, initialId, initialIndex, onClose, onVibe, onOp
                 {heartBurstSlot === slot ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"><Flame className="h-28 w-28 scale-110 fill-pink-400 text-pink-200 drop-shadow-[0_0_24px_rgba(236,72,153,0.8)] transition-transform duration-300" /></div> : null}
                 {pausedId === row.id ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center"><span className="rounded-full bg-black/55 p-5 text-3xl text-white">▶</span></div> : null}
                 <div className="absolute bottom-20 right-3 z-[1] flex flex-col items-center gap-3 md:bottom-8">
-                  <button type="button" onClick={() => onFollow?.(row)} aria-label={`Follow @${row.profiles.username}`} className="relative mb-1 flex h-12 w-12 items-center justify-center rounded-full border border-white/50 bg-black/35">
-                    <Avatar p={row.profiles} size="h-11 w-11" />
-                    {onFollow ? <span className="absolute -bottom-1 flex h-5 w-5 items-center justify-center rounded-full bg-linear-to-r from-[#7c3aed] to-[#2563eb] text-xs font-bold text-white">+</span> : null}
-                  </button>
+                  <div className="relative mb-1 h-12 w-12"><Link href={`/${row.profiles.username}`} aria-label={`Open @${row.profiles.username}`} className="flex h-12 w-12 items-center justify-center rounded-full border border-white/50 bg-black/35"><Avatar p={row.profiles} size="h-11 w-11" /></Link>{showFollow ? <button type="button" onClick={() => onFollow?.(row)} aria-label={`Follow @${row.profiles.username}`} className="absolute -bottom-1 left-1/2 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full bg-linear-to-r from-[#7c3aed] to-[#2563eb] text-xs font-bold text-white">+</button> : null}</div>
                   <button onClick={() => onVibe(row)} aria-label={row.type === "struggle" ? "Support" : "Vibe"} className={`${rail} transition-transform duration-200 active:scale-125 ${likePopId === row.id ? "scale-125" : ""} ${liked ? "text-pink-300" : ""}`}><Flame className={`h-6 w-6 ${liked ? "fill-current text-pink-400" : ""}`} />{vibeCount}</button>
                   <button onClick={() => onOpen(row)} aria-label="Open comments" className={rail}><MessageCircle className="h-6 w-6" />{row.comments.length}</button>
-                  {onSave ? <button onClick={() => onSave(row)} aria-label="Save post" className={rail}><span className="text-xl">▣</span>Save</button> : null}
+                  {onSave ? <button onClick={() => onSave(row)} aria-label="Save post" className={`${rail} ${saved ? "text-yellow-400" : ""}`}><span className="text-xl">{saved ? "▣" : "▢"}</span>{saved ? "Saved" : "Save"}</button> : null}
                   <button onClick={() => onShare(row)} aria-label="Share" className={rail}><Share2 className="h-6 w-6" /></button>
                 </div>
                 <div className="absolute bottom-20 left-3 right-20 z-[1] text-white md:bottom-8">
-                  <div className="mb-2 flex items-center gap-2"><span className="truncate font-semibold">@{row.profiles.username}</span>{onFollow ? <button onClick={() => onFollow(row)} className="rounded-full border border-white/70 px-3 py-1 text-xs font-semibold">Follow</button> : null}</div>
+                  <div className="mb-2 flex items-center gap-2"><Link href={`/${row.profiles.username}`} className="truncate font-semibold">@{row.profiles.username}</Link>{showFollow ? <button onClick={() => onFollow?.(row)} className="rounded-full border border-white/70 px-3 py-1 text-xs font-semibold">Follow</button> : isFollowing ? <span className="rounded-full border border-white/30 px-3 py-1 text-xs text-white/70">Following</span> : null}</div>
                   {shown.title ? <p className="font-bold">{shown.title}</p> : null}
                   {row.body ? <p className="line-clamp-2 text-sm text-white/90">{row.body}</p> : null}
                   {row.tags?.length ? <p className="mt-1 line-clamp-1 text-xs text-white/85">{row.tags.map((tag) => `#${tag}`).join(" ")}</p> : null}

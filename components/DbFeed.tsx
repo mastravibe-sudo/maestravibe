@@ -482,12 +482,14 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
           hasMore={hasMorePosts}
           onFollow={followShortAuthor}
           onSave={save}
+          followingIds={following}
         />
       ) : null}
 
-      <div className={tab === "Following" ? "space-y-3" : "hidden"}>
       {note ? <p role="status" className="rounded-lg border border-violet-300/15 bg-violet-500/10 p-3 text-sm text-violet-200">{note}</p> : null}
       {error ? <p role="alert" className="rounded-xl border border-pink-400/20 bg-pink-400/10 p-3 text-sm text-pink-100">{error}</p> : null}
+
+      <div className={tab === "Following" ? "space-y-3" : "hidden"}>
       {loading ? <p className="py-10 text-center text-[#a8a2c9]">Loading posts...</p> : feedRows.length === 0 && !error ? <p className="py-10 text-center text-[#a8a2c9]">{tab === "Following" ? "Follow people to see their posts here." : "Nothing here yet. Be the first to share your vibe."}</p> : null}
 
       {feedRows.map((r, index) => {
@@ -612,8 +614,9 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
           </div>
         );
       })}
+      </div>
 
-      {shorts ? <ShortsViewer rows={shortsViewerRows} me={me} initialId={initialShortId} initialIndex={initialShortIndex} likeOverrides={likeOverrides} likePopId={likePopId} onClose={closeShorts} onVibe={vibe} onOpen={openShortComments} onShare={share} onWatch={markShortWatched} onNearEnd={loadMorePosts} loadingMore={loadingMorePosts} hasMore={hasMorePosts} onFollow={followShortAuthor} onSave={save} /> : null}
+      {shorts ? <ShortsViewer rows={shortsViewerRows} me={me} initialId={initialShortId} initialIndex={initialShortIndex} likeOverrides={likeOverrides} likePopId={likePopId} onClose={closeShorts} onVibe={vibe} onOpen={openShortComments} onShare={share} onWatch={markShortWatched} onNearEnd={loadMorePosts} loadingMore={loadingMorePosts} hasMore={hasMorePosts} onFollow={followShortAuthor} onSave={save} followingIds={following} /> : null}
       {open ? (
         <PostViewer
           key={open.id} row={open} me={me} initialCommentsOpen={openComments} likeOverride={likeOverrides[open.id]} likePop={likePopId === open.id} onClose={closePost}
@@ -622,7 +625,6 @@ export default function DbFeed({ circleCard, discoverCard }: { circleCard?: Reac
           onToggleComments={toggleCommentsOpen} onDelete={deleteOpen}
         />
       ) : null}
-      </div>
     </section>
   );
 }
