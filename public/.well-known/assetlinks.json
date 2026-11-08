@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "online.maestravibe.app",
+      "sha256_cert_fingerprints": [
+        "B9:B2:09:17:04:E9:0B:4A:1B:B2:C5:0D:E0:58:D7:C0:EC:6B:2E:75:45:77:53:BA:32:57:30:8F:81:3A:FB:2B"
+      ]
+    }
+  }
+]
