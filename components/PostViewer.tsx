@@ -116,7 +116,7 @@ function PostViewer({
     playbackTimer.current = setTimeout(() => setShowPlaybackIcon(false), 700);
   };
   return (
-    <div className="fixed inset-0 z-[60] isolate overflow-hidden bg-black text-white" role="dialog" aria-modal="true" aria-label="Post viewer">
+    <div className="fixed inset-0 z-[200] isolate overflow-hidden bg-black text-white" role="dialog" aria-modal="true" aria-label="Post viewer">
       {media[0]?.type === "video" ? (
         <video
           ref={videoRef}
