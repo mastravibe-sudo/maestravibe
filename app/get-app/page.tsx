@@ -9,16 +9,23 @@ export default function GetAppPage() {
   const [installed, setInstalled] = useState(false);
   const [ios, setIos] = useState(false);
   const [inApp, setInApp] = useState(false);
-  const apk = process.env.NEXT_PUBLIC_APK_URL;
+  const [android, setAndroid] = useState(false);
+  const [isShortcut, setIsShortcut] = useState(false);
+  const apk = process.env.NEXT_PUBLIC_APK_URL || "/downloads/maestra-vibe.apk";
 
   useEffect(() => {
     const ua = navigator.userAgent;
     setIos(/iPhone|iPad|iPod/i.test(ua));
     setInApp(/FBAN|FBAV|Instagram|WhatsApp|Line\//i.test(ua));
-    setInstalled(
+    setAndroid(/Android/i.test(ua));
+
+    const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
-      Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
-    );
+      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+    const fromApp =
+      new URLSearchParams(location.search).get("source") === "twa";
+    setInstalled(standalone && fromApp);
+    setIsShortcut(standalone && !fromApp);
 
     const onPrompt = (e: Event) => {
       e.preventDefault();
@@ -95,10 +102,6 @@ export default function GetAppPage() {
             Open Maestra Vibe
           </a>
         </div>
-      ) : inApp ? (
-        <p className="mt-5 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm">
-          Open this page in Chrome or Safari to install the app.
-        </p>
       ) : ios ? (
         <ol className="mt-5 list-decimal space-y-2 rounded-xl bg-[#110f2e] p-4 pl-8 text-sm">
           <li>Open this page in Safari.</li>
@@ -106,6 +109,36 @@ export default function GetAppPage() {
           <li>Choose Add to Home Screen.</li>
           <li>Tap Add.</li>
         </ol>
+      ) : android ? (
+        <div className="mt-5">
+          {isShortcut ? (
+            <p className="mb-3 rounded-xl border border-violet-400/30 bg-violet-400/10 p-4 text-sm">
+              The real Maestra Vibe Android app is here. Install it, then
+              remove the old shortcut.
+            </p>
+          ) : null}
+          {inApp ? (
+            <p className="mb-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm">
+              If the download does not start, open this page in Chrome.
+            </p>
+          ) : null}
+          <a
+            href={apk}
+            download="maestra-vibe.apk"
+            className="block h-14 w-full rounded-full bg-linear-to-r from-[#7c3aed] to-[#2563eb] text-center text-base font-semibold leading-[3.5rem]"
+          >
+            Install App
+          </a>
+          <p className="mt-3 text-center text-xs text-[#8983aa]">
+            After the download, open the file and tap Install. The first time,
+            Android may ask you to allow installs from this browser. After
+            installing, remove the old Maestra Vibe shortcut.
+          </p>
+        </div>
+      ) : inApp ? (
+        <p className="mt-5 rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm">
+          Open this page in Chrome or Safari to install the app.
+        </p>
       ) : (
         <button
           onClick={install}
@@ -115,15 +148,6 @@ export default function GetAppPage() {
           {deferred ? "Install App" : "Open in Chrome to Install"}
         </button>
       )}
-
-      {apk ? (
-        <a
-          href={apk}
-          className="mt-3 block h-12 rounded-full border border-white/20 text-center text-sm leading-[3rem]"
-        >
-          Download Android APK
-        </a>
-      ) : null}
 
       <section className="mt-8">
         <h2 className="mb-3 text-lg font-semibold">Experience Maestra Vibe</h2>
@@ -149,7 +173,7 @@ export default function GetAppPage() {
       </section>
 
       <section className="mt-6 rounded-2xl border border-white/10 bg-[#110f2e] p-5">
-        <h2 className="mb-2 text-lg font-semibold">What's new</h2>
+        <h2 className="mb-2 text-lg font-semibold">What&apos;s new</h2>
         <p className="text-sm text-[#c9c4e8]">
           Faster feed, Vibe flame, status views, voice messages and a new look.
         </p>
