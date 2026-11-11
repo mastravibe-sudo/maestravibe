@@ -15,6 +15,7 @@ import ProfileView from "@/components/ProfileView";
 import { HeaderStylePicker } from "@/components/profile/HeaderStyles";
 import { StatsStylePicker } from "@/components/profile/StatsStyles";
 import { STICKERS } from "@/lib/stickers";
+import ProfileWizard from "@/components/ProfileWizard";
 
 const MAX_IMAGE_BYTES = 100 * 1024;
 const IMAGE_QUALITIES = [0.86, 0.76, 0.66, 0.56, 0.46, 0.36, 0.28, 0.2];
@@ -93,9 +94,11 @@ const smallLabel = "mb-1.5 block text-xs font-medium text-zinc-400";
 export default function ProfileStudio({
   profile,
   stats = { followers: 0, following: 0 },
+  onboarding = false,
 }: {
   profile: ProfileRecord;
   stats?: { followers: number; following: number };
+  onboarding?: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
@@ -126,6 +129,7 @@ export default function ProfileStudio({
   const [activeTool, setActiveTool] = useState<"templates" | "skins" | "stickers" | "fonts" | "colors" | "layout">("templates");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(onboarding);
 
   const selectedBlock = blocks.find((block) => block.id === selectedId) ?? null;
   const previewProfile = normalizeProfileRecord({ ...profile, ...identity, theme, blocks });
@@ -385,6 +389,7 @@ export default function ProfileStudio({
             template: identity.template,
             theme,
             updated_at: savedAt,
+            ...(onboarding ? { onboarding_completed_at: savedAt } : {}),
           })
           .eq("id", profile.id)
           .select("id")
@@ -451,6 +456,22 @@ export default function ProfileStudio({
     }
   };
 
+  const skipOnboarding = async () => {
+    setSaving(true);
+    setError(null);
+    const { error: flagError } = await supabase
+      .from("profiles")
+      .update({ onboarding_completed_at: new Date().toISOString() })
+      .eq("id", profile.id);
+    setSaving(false);
+    if (flagError) {
+      setError(messageOf(flagError, "Could not skip setup."));
+      return;
+    }
+    router.replace(`/${profile.username}`);
+    router.refresh();
+  };
+
   const uploadControl = (kind: "avatar" | "banner") => (
     <label className="inline-flex min-h-12 cursor-pointer items-center justify-center rounded-xl border border-white/10 px-3 py-2 text-sm text-zinc-200 hover:bg-white/5">
       {uploading === kind ? "Preparing..." : `Upload ${kind}`}
@@ -488,6 +509,30 @@ export default function ProfileStudio({
           {saving ? "Saving your profile…" : "Your profile is saved."}
         </div>
       </>
+    );
+  }
+
+  if (wizardOpen) {
+    return (
+      <ProfileWizard
+        username={profile.username}
+        identity={identity}
+        setIdentity={setIdentity}
+        theme={theme}
+        setTheme={setTheme}
+        blocks={blocks}
+        setBlockStyle={setBlockStyle}
+        previewProfile={previewProfile}
+        stats={stats}
+        applyTemplate={applyTemplate}
+        uploadControl={uploadControl}
+        uploading={uploading}
+        saving={saving}
+        error={error}
+        onFinish={save}
+        onSkipAll={skipOnboarding}
+        onOpenFullEditor={() => setWizardOpen(false)}
+      />
     );
   }
 

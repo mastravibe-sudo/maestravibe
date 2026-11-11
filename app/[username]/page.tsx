@@ -1,6 +1,6 @@
 import { cache } from "react";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import ProfileBuilder from "@/components/ProfileBuilder";
 import ProfileView from "@/components/ProfileView";
 import { publicClient } from "@/lib/supabase/public";
@@ -78,7 +78,7 @@ export default async function ProfilePage({
     supabase.auth.getUser(),
     supabase
       .from("profiles")
-      .select("id,username,name,bio,avatar_url,banner_url,template,theme,visibility,discoverable,verified,created_at,updated_at")
+      .select("id,username,name,bio,avatar_url,banner_url,template,theme,visibility,discoverable,verified,created_at,updated_at,onboarding_completed_at")
       .eq("username", username)
       .maybeSingle(),
   ]);
@@ -91,6 +91,10 @@ export default async function ProfilePage({
 
   const viewerId = user?.id ?? null;
   const isOwner = !!viewerId && viewerId === profileRow.id;
+  const needsOnboarding = isOwner && !profileRow.onboarding_completed_at;
+  if (needsOnboarding && edit !== "1") {
+    redirect(`/${profileRow.username}?edit=1&welcome=1`);
+  }
   const [followCheck, followerResult, followingResult, blocksResult] = await Promise.all([
     viewerId
       ? supabase
@@ -124,7 +128,7 @@ export default async function ProfilePage({
     (profile.visibility === "followers" && !!followCheck.data);
 
   if (isOwner && edit === "1") {
-    return <ProfileBuilder profile={profile} stats={{ followers: followerCount ?? 0, following: followingCount ?? 0 }} />;
+    return <ProfileBuilder profile={profile} stats={{ followers: followerCount ?? 0, following: followingCount ?? 0 }} onboarding={needsOnboarding} />;
   }
 
   return (

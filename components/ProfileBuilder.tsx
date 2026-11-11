@@ -10,9 +10,11 @@ const ProfileStudio = dynamic(() => import("@/components/ProfileStudio"), {
 export default function ProfileBuilder({
   profile,
   stats,
+  onboarding = false,
 }: {
   profile: ProfileRecord;
   stats: { followers: number; following: number };
+  onboarding?: boolean;
 }) {
-  return <ProfileStudio profile={profile} stats={stats} />;
+  return <ProfileStudio profile={profile} stats={stats} onboarding={onboarding} />;
 }
