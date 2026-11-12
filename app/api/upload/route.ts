@@ -87,23 +87,26 @@ export async function POST(req: Request) {
   const isProfile = purpose === "profile" && (imageType === "avatar" || imageType === "banner");
   const isPostImage = purpose === "post";
   const isPostVideo = purpose === "post-video";
+  const isProfileBackgroundVideo = purpose === "profile-background-video";
+  const isProfileBackgroundImage = purpose === "profile-background-image";
   const isStatusImage = purpose === "status-image";
   const isStatusMusic = purpose === "status-music";
   const isChatImage = purpose === "chat-image";
   const isChatVoice = purpose === "chat-voice";
-  if (!isProfile && !isPostImage && !isPostVideo && !isStatusImage && !isStatusMusic && !isChatImage && !isChatVoice) {
+  if (!isProfile && !isPostImage && !isPostVideo && !isProfileBackgroundVideo && !isProfileBackgroundImage && !isStatusImage && !isStatusMusic && !isChatImage && !isChatVoice) {
     return Response.json({ error: "Invalid upload purpose." }, { status: 400 });
   }
 
   const max = isProfile ? LIMITS.profile
     : isPostImage ? LIMITS.post
-      : isPostVideo ? LIMITS.video
+      : (isPostVideo || isProfileBackgroundVideo) ? LIMITS.video
+      : isProfileBackgroundImage ? LIMITS.profile
         : isStatusImage ? LIMITS.statusImage
           : isStatusMusic ? LIMITS.statusMusic
             : isChatImage ? LIMITS.chatImage
               : LIMITS.chatVoice;
   if (file.size === 0 || file.size > max) {
-    const label = isPostVideo ? "Videos must be 30 seconds and 2.5 MB or less."
+    const label = (isPostVideo || isProfileBackgroundVideo) ? "Videos must be 30 seconds and 2.5 MB or less."
       : isStatusMusic ? "Status music must be an MP3 file of 10 MB or less."
         : isChatVoice ? "Voice messages must be 2 minutes and 1 MB or less."
           : `Images must be ${Math.round(max / 1024)} KB or less.`;
@@ -122,7 +125,7 @@ export async function POST(req: Request) {
     if (duration === null) return Response.json({ error: "Could not read the MP3 duration." }, { status: 400 });
     if (duration > 30) return Response.json({ error: "Status music clips must be 30 seconds or shorter." }, { status: 413 });
     [ext, contentType] = ["mp3", "audio/mpeg"];
-  } else if (isPostVideo) {
+  } else if (isPostVideo || isProfileBackgroundVideo) {
     if (isMp4(bytes)) [ext, contentType] = ["mp4", "video/mp4"];
     else if (isWebm(bytes)) [ext, contentType] = ["webm", "video/webm"];
     else return Response.json({ error: "Only MP4 or WebM videos are allowed." }, { status: 400 });
@@ -136,8 +139,10 @@ export async function POST(req: Request) {
 
   const key = isProfile
     ? `profiles/${user.id}/${imageType}/${crypto.randomUUID()}.${ext}`
-    : isStatusImage || isStatusMusic
-      ? `statuses/${user.id}/${crypto.randomUUID()}.${ext}`
+    : isProfileBackgroundVideo
+      ? `profiles/${user.id}/background/${crypto.randomUUID()}.${ext}`
+      : isProfileBackgroundImage
+        ? `profiles/${user.id}/background/${crypto.randomUUID()}.${ext}`
       : isChatImage || isChatVoice
         ? `chat-media/${user.id}/${crypto.randomUUID()}.${ext}`
         : `posts/${user.id}/${crypto.randomUUID()}.${ext}`;
