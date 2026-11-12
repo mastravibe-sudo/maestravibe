@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Camera, X } from "lucide-react";
 
 type ProfileMediaEditorProps = {
@@ -18,7 +18,7 @@ function createPreview(file: File) {
 async function loadImage(url: string) {
   const image = new Image();
   image.src = url;
-  await image.decode();
+  await new Promise<void>((resolve, reject) => { image.onload = () => (image.naturalWidth > 0 && image.naturalHeight > 0 ? resolve() : reject(new Error("This image has no readable size."))); image.onerror = () => reject(new Error("This image could not be read. Use a JPG, PNG, or WebP file.")); });
   return image;
 }
 
@@ -79,18 +79,22 @@ async function compressSquare(file: File, url: string, horizontal: number, verti
 }
 
 export default function ProfileMediaEditor({ file, imageType, saving, onClose, onSave }: ProfileMediaEditorProps) {
-  const previewUrl = useMemo(() => createPreview(file), [file]);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [horizontal, setHorizontal] = useState(50);
   const [vertical, setVertical] = useState(50);
   const [frameTime, setFrameTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => () => URL.revokeObjectURL(previewUrl), [previewUrl]);
+  useEffect(() => {
+    const url = createPreview(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   const save = async () => {
     setError(null);
     try {
-      const image = await compressSquare(file, previewUrl, horizontal, vertical, frameTime);
+      if (!previewUrl) return; const image = await compressSquare(file, previewUrl, horizontal, vertical, frameTime);
       await onSave(image);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not prepare this image.");
@@ -115,7 +119,7 @@ export default function ProfileMediaEditor({ file, imageType, saving, onClose, o
         </header>
 
         <div className="mx-auto aspect-square w-full max-w-[320px] overflow-hidden rounded-2xl border border-white/15 bg-black">
-          {video ? (
+          {!previewUrl ? null : video ? (
             <video
               src={previewUrl}
               controls

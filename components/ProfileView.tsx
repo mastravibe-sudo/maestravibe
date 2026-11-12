@@ -32,6 +32,7 @@ export default function ProfileView({
   const [mediaTarget, setMediaTarget] = useState<"avatar" | "banner" | null>(null);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaSaving, setMediaSaving] = useState(false);
+  const [bgStatus, setBgStatus] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
   const theme = profile.theme;
@@ -110,6 +111,158 @@ export default function ProfileView({
       setFollowError(uploadError instanceof Error ? uploadError.message : "Profile image upload failed.");
     } finally {
       setMediaSaving(false);
+    }
+  };
+
+  const compressBackground = (file: File) =>
+    new Promise<Blob>((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          if (!img.naturalWidth || !img.naturalHeight) throw new Error("This image has no readable size.");
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.min(img.naturalWidth, 1600);
+          canvas.height = Math.round(img.naturalHeight * (canvas.width / img.naturalWidth));
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("Your browser could not prepare this image.");
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(
+            (blob) => (blob && blob.type === "image/webp" ? resolve(blob) : reject(new Error("Could not compress this image."))),
+            "image/webp",
+            0.82,
+          );
+        } catch (error) {
+          reject(error);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("This image could not be read. Use a JPG, PNG, or WebP file."));
+      };
+      img.src = url;
+    });
+
+  // Re-encodes the first 5 seconds as a small WebM (no audio, max 720px wide).
+  const compressVideo = async (file: File): Promise<File> => {
+    const mimeType = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(
+      (type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type),
+    );
+    if (!mimeType || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
+      if (file.size <= 600 * 1024) return file;
+      throw new Error("This browser cannot compress video. Use a clip under 500 KB.");
+    }
+
+    const url = URL.createObjectURL(file);
+    try {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      await new Promise<void>((resolve, reject) => {
+        video.onloadeddata = () => resolve();
+        video.onerror = () => reject(new Error("This video could not be played. Use MP4 or WebM."));
+        video.src = url;
+      });
+      if (!video.videoWidth || !video.videoHeight) throw new Error("This video has no readable size.");
+
+      const width = Math.min(video.videoWidth, 720);
+      const height = Math.round(video.videoHeight * (width / video.videoWidth));
+      const canvas = document.createElement("canvas");
+      canvas.width = width - (width % 2);
+      canvas.height = height - (height % 2);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Your browser could not prepare this video.");
+
+      const seconds = Math.min(5, Number.isFinite(video.duration) ? video.duration : 5);
+      let smallest: Blob | null = null;
+
+      for (const bitrate of [850000, 650000, 450000]) {
+        setBgStatus(`Compressing video (${Math.round(bitrate / 1000)} kbps)...`);
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          const stream = canvas.captureStream(24);
+          const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
+          const chunks: Blob[] = [];
+          recorder.ondataavailable = (event) => {
+            if (event.data.size) chunks.push(event.data);
+          };
+          recorder.onerror = () => reject(new Error("Video compression failed."));
+          recorder.onstop = () => {
+            stream.getTracks().forEach((track) => track.stop());
+            resolve(new Blob(chunks, { type: "video/webm" }));
+          };
+          const draw = () => {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            if (video.currentTime >= seconds - 0.05 || video.ended) {
+              video.pause();
+              recorder.stop();
+              return;
+            }
+            requestAnimationFrame(draw);
+          };
+          video.currentTime = 0;
+          recorder.start();
+          video.play().then(() => requestAnimationFrame(draw)).catch(() => reject(new Error("This video could not be played.")));
+        });
+        if (!smallest || blob.size < smallest.size) smallest = blob;
+        if (blob.size <= 520 * 1024) break;
+      }
+
+      if (!smallest || smallest.size === 0) throw new Error("Video compression failed.");
+      if (smallest.size > 1024 * 1024) throw new Error("This video is too complex to compress small enough. Try a simpler clip.");
+      return new File([smallest], "background.webm", { type: "video/webm" });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const uploadBackground = async (file?: File) => {
+    if (!file || !access.isOwner) return;
+    const isVideo = file.type === "video/mp4" || file.type === "video/webm";
+    if (!isVideo && !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setFollowError("Choose a JPG, PNG, WebP image, or an MP4/WebM video.");
+      return;
+    }
+    if (isVideo && file.size > 50 * 1024 * 1024) {
+      setFollowError("Choose a video smaller than 50 MB.");
+      return;
+    }
+    setMediaSaving(true);
+    setFollowError(null);
+    try {
+      const body = isVideo ? await compressVideo(file) : await compressBackground(file);
+      setBgStatus("Uploading background...");
+      const form = new FormData();
+      form.append("purpose", isVideo ? "profile-background-video" : "profile-background-image");
+      form.append("file", body, isVideo ? "background.webm" : "background.webp");
+      const response = await fetch("/api/upload", { method: "POST", body: form });
+      const result = await response.json() as { publicUrl?: string; error?: string };
+      if (!response.ok || !result.publicUrl) throw new Error(result.error || "Background upload failed.");
+
+      const { data: saved, error: saveError } = await createClient()
+        .from("profiles")
+        .update({
+          theme: {
+            ...profile.theme,
+            backgroundType: "image",
+            backgroundValue: result.publicUrl,
+            backgroundMediaType: isVideo ? "video" : "image",
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", profile.id)
+        .select("id")
+        .maybeSingle();
+      if (saveError) throw new Error(saveError.message);
+      if (!saved) throw new Error("Background was uploaded, but the profile could not be updated.");
+      router.refresh();
+    } catch (uploadError) {
+      setFollowError(uploadError instanceof Error ? uploadError.message : "Background upload failed.");
+    } finally {
+      setMediaSaving(false);
+      setBgStatus(null);
     }
   };
 
@@ -209,6 +362,7 @@ export default function ProfileView({
         <section id="profile-page" aria-label="Profile" className="h-full w-full shrink-0 snap-start overflow-y-auto overscroll-y-contain bg-[#07061a]">
           <div className="w-full px-0 py-5 pb-36 sm:py-8 sm:pb-36 md:pb-20">
             {followError ? <p role="alert" className="mb-3 rounded-lg border border-red-400/20 bg-red-950/30 p-3 text-sm text-red-200">{followError}</p> : null}
+            {mediaSaving && !mediaFile ? <p role="status" className="mb-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/80">{bgStatus ?? "Uploading background..."}</p> : null}
             <ProfileRender
               profile={profile}
               stats={{ followers: followerCount, following: stats.following }}
@@ -237,8 +391,8 @@ export default function ProfileView({
             selectMedia("avatar", event.currentTarget.files?.[0]);
             event.currentTarget.value = "";
           }} />
-          <input ref={bannerInputRef} type="file" accept="image/*,video/*" className="sr-only" onChange={(event) => {
-            selectMedia("banner", event.currentTarget.files?.[0]);
+          <input ref={bannerInputRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" className="sr-only" onChange={(event) => {
+            void uploadBackground(event.currentTarget.files?.[0]);
             event.currentTarget.value = "";
           }} />
         </>

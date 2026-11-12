@@ -285,14 +285,12 @@ export default function ProfileRender({
   }, [profile.id]);
 
   // "background" shorthand ko backgroundImage + backgroundColor mein toda hai (React warning se bachne ke liye)
-  const backgroundImage = profile.banner_url
-    ? `linear-gradient(rgba(8, 10, 20, 0.52), rgba(8, 10, 20, 0.7)), url("${profile.banner_url}")`
-    : profile.theme.backgroundType === "solid"
-      ? "none"
-      : profile.theme.backgroundType === "image" && /^https?:\/\//i.test(profile.theme.backgroundValue)
-        ? `url("${profile.theme.backgroundValue}")`
-        : profile.theme.backgroundValue;
-  const backgroundColor = !profile.banner_url && profile.theme.backgroundType === "solid"
+  const backgroundImage = profile.theme.backgroundType === "solid"
+    ? "none"
+    : profile.theme.backgroundType === "image" && /^https?:\/\//i.test(profile.theme.backgroundValue)
+      ? `url("${profile.theme.backgroundValue}")`
+      : profile.theme.backgroundValue;
+  const backgroundColor = profile.theme.backgroundType === "solid"
     ? profile.theme.backgroundValue
     : profile.theme.page;
   const renderedBlocks = profile.blocks.length ? profile.blocks : createDefaultProfileBlocks(profile.id);
@@ -310,7 +308,20 @@ export default function ProfileRender({
         fontFamily: profile.theme.fontBody,
       }}
     >
-      {onBannerClick ? (
+      {profile.theme.backgroundType === "image" && profile.theme.backgroundMediaType === "video" && /^https?:\/\//i.test(profile.theme.backgroundValue) ? (
+        <video
+  src={profile.theme.backgroundValue}
+  autoPlay
+  muted
+  playsInline
+  onTimeUpdate={(event) => {
+    if (event.currentTarget.currentTime >= 5) event.currentTarget.pause();
+  }}
+  aria-hidden="true"
+  tabIndex={-1}
+  className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover"
+/>
+      ) : null}      {onBannerClick ? (
         <button type="button" onClick={onBannerClick} aria-label="Change profile cover" className="absolute right-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-[#07061a]/75 text-white shadow-lg backdrop-blur hover:bg-violet-600">
           <Camera className="h-4 w-4" aria-hidden="true" />
         </button>
