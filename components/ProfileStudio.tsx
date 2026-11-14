@@ -98,6 +98,52 @@ async function compressImage(file: File) {
   }
 }
 
+async function compressBackgroundImage(file: File) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("Choose a valid JPG, PNG, or WebP image."));
+      element.src = objectUrl;
+    });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Your browser could not prepare this image.");
+    let scale = Math.min(1, 1920 / Math.max(image.width, image.height));
+    while (scale >= 0.3) {
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.92, 0.86, 0.8, 0.72, 0.64, 0.56, 0.48]) {
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", quality));
+        if (!blob) throw new Error("Your browser could not compress this image.");
+        if (blob.size <= 950 * 1024) return blob;
+      }
+      scale *= 0.85;
+    }
+    throw new Error("This image is too detailed to fit under 1 MB. Try a smaller image.");
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function readVideoSeconds(file: File) {
+  return new Promise<number | null>((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    const done = (value: number | null) => {
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    window.setTimeout(() => done(null), 8000);
+    video.preload = "metadata";
+    video.onloadedmetadata = () => done(Number.isFinite(video.duration) ? video.duration : null);
+    video.onerror = () => done(null);
+    video.src = url;
+  });
+}
 function messageOf(error: unknown, fallback: string) {
   return error && typeof error === "object" && "message" in error && typeof error.message === "string"
     ? error.message
@@ -430,9 +476,21 @@ export default function ProfileStudio({
       return;
     }
 
-    if (isVideo && file.size > 2.5 * 1024 * 1024) {
-      setError("Background video must be 2.5 MB or smaller.");
+    if (isVideo && file.size > 4 * 1024 * 1024) {
+      setError("Background video must be 4 MB or smaller.");
       return;
+    }
+
+    if (isVideo) {
+      const seconds = await readVideoSeconds(file);
+      if (seconds === null) {
+        setError("This video could not be read. Use an MP4 or WebM file your browser can play.");
+        return;
+      }
+      if (seconds > 15.5) {
+        setError("Background video must be 15 seconds or shorter.");
+        return;
+      }
     }
 
     setUploading("background");
@@ -440,7 +498,7 @@ export default function ProfileStudio({
     setSuccess(null);
 
     try {
-      const uploadFile = isVideo ? file : await compressImage(file);
+      const uploadFile = isVideo ? file : await compressBackgroundImage(file);
       const formData = new FormData();
       formData.append("purpose", isVideo ? "profile-background-video" : "profile-background-image");
       formData.append("file", uploadFile, isVideo ? file.name : "background.webp");

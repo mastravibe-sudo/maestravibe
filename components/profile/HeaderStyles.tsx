@@ -9,6 +9,7 @@ export const HEADER_LAYOUTS = [
   { id: "row", name: "Classic" }, { id: "center", name: "Centered" }, { id: "cover", name: "Cover" },
   { id: "cover-center", name: "Cover centered" }, { id: "right", name: "Mirrored" }, { id: "compact", name: "Compact" },
   { id: "hero", name: "Hero" }, { id: "split", name: "Split" }, { id: "badge", name: "Badge" }, { id: "minimal", name: "Minimal" },
+  { id: "banner", name: "Banner" }, { id: "bannercenter", name: "Banner centered" }, { id: "bannerlap", name: "Banner overlap" }, { id: "bannerside", name: "Banner side" },
 ] as const;
 export const HEADER_SKINS = [{ id: "glass", name: "Glass" }, { id: "solid", name: "Solid" }, { id: "outline", name: "Outline" }] as const;
 export const AVATAR_RINGS = [{ id: "none", name: "No ring" }, { id: "accent", name: "Accent" }, { id: "white", name: "White" }] as const;
@@ -106,6 +107,15 @@ export function HeaderBlock({
     </div>
   );
 
+  const bannerBg = (
+    <>
+      <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, " + t.accent + ", " + t.pageAlt + ")" }} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {profile.banner_url ? <img src={profile.banner_url} alt="" className="absolute inset-0 h-full w-full object-cover" /> : null}
+    </>
+  );
+  const bannerShade = <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0.08) 65%)" }} />;
+
   switch (layout) {
     case "right":
       return <div className="flex h-full flex-row-reverse items-center gap-4">{av(64)}<div className="min-w-0 flex-1 text-right">{nameEl()}{userEl}</div>{action}</div>;
@@ -125,6 +135,14 @@ export function HeaderBlock({
       return <div className="flex h-full items-center justify-center gap-3"><div className="flex min-w-0 items-center gap-3 rounded-full py-1.5 pl-1.5 pr-5" style={{ background: t.accentSoft }}>{av(56)}<div className="min-w-0">{nameEl("1.2em")}{userEl}</div></div>{action}</div>;
     case "minimal":
       return <div className="flex h-full flex-col justify-center gap-1"><h1 className="truncate font-black leading-none" style={{ fontFamily: t.fontHeading, fontSize: "2.2em" }}>{display}</h1><div className="flex items-center gap-2">{av(28)}<span className="opacity-70">@{profile.username}</span>{action}</div></div>;
+    case "banner":
+      return <div className="relative flex h-full overflow-hidden rounded-lg text-white">{bannerBg}{bannerShade}<div className="relative z-10 flex w-full items-end gap-3 p-3">{av(64)}<div className="min-w-0 flex-1">{nameEl("1.4em")}{userEl}</div>{action}</div></div>;
+    case "bannercenter":
+      return <div className="relative flex h-full flex-col items-center justify-end overflow-hidden rounded-lg text-center text-white">{bannerBg}{bannerShade}<div className="relative z-10 flex w-full flex-col items-center gap-1 p-3">{av(80)}{nameEl("1.45em", "max-w-full")}{userEl}{action}</div></div>;
+    case "bannerlap":
+      return <div className="flex h-full flex-col"><div className="relative min-h-10 flex-[0_0_55%] overflow-hidden rounded-lg">{bannerBg}</div><div className="relative -mt-10 flex items-end gap-3 px-3">{av(80)}<div className="min-w-0 flex-1 pb-1">{nameEl("1.3em")}{userEl}</div>{action}</div></div>;
+    case "bannerside":
+      return <div className="flex h-full overflow-hidden rounded-lg"><div className="relative w-2/5 shrink-0">{bannerBg}<div className="relative z-10 flex h-full items-center justify-center">{av(64)}</div></div><div className="flex min-w-0 flex-1 flex-col justify-center gap-1 pl-4">{nameEl()}{userEl}<div>{action}</div></div></div>;
     default:
       return <div className="flex h-full items-center gap-4">{av(64)}<div className="min-w-0 flex-1">{nameEl()}{userEl}</div>{action}</div>;
   }
@@ -142,7 +160,7 @@ export function HeaderStylePicker({ style, theme, onChange }: { style: Record<st
   return (
     <div className="mb-3 space-y-3 border-t border-white/10 pt-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-zinc-400">Header style (30 looks)</p>
+        <p className="text-xs font-medium text-zinc-400">Header style ({HEADER_LAYOUTS.length * HEADER_SKINS.length} looks)</p>
         <button onClick={() => { onChange("headerStyle", "row-glass"); onChange("avatarShape", "circle"); onChange("avatarRing", "none"); }} className="text-xs text-zinc-400 hover:text-white">Reset to default</button>
       </div>
       <div className="flex gap-2">
