@@ -5,6 +5,8 @@ import { publicUrl, uploadObject } from "@/lib/r2";
 
 const LIMITS = {
   profile: 100 * 1024,
+  profileBackground: 1024 * 1024,
+  profileBackgroundVideo: 4 * 1024 * 1024,
   post: 150 * 1024,
   video: 2.5 * 1024 * 1024,
   statusImage: 150 * 1024,
@@ -99,14 +101,16 @@ export async function POST(req: Request) {
 
   const max = isProfile ? LIMITS.profile
     : isPostImage ? LIMITS.post
-      : (isPostVideo || isProfileBackgroundVideo) ? LIMITS.video
-      : isProfileBackgroundImage ? LIMITS.profile
+      : isProfileBackgroundVideo ? LIMITS.profileBackgroundVideo
+      : isPostVideo ? LIMITS.video
+      : isProfileBackgroundImage ? LIMITS.profileBackground
         : isStatusImage ? LIMITS.statusImage
           : isStatusMusic ? LIMITS.statusMusic
             : isChatImage ? LIMITS.chatImage
               : LIMITS.chatVoice;
   if (file.size === 0 || file.size > max) {
-    const label = (isPostVideo || isProfileBackgroundVideo) ? "Videos must be 30 seconds and 2.5 MB or less."
+    const label = isProfileBackgroundVideo ? "Background videos must be 4 MB or less."
+      : isPostVideo ? "Videos must be 30 seconds and 2.5 MB or less."
       : isStatusMusic ? "Status music must be an MP3 file of 10 MB or less."
         : isChatVoice ? "Voice messages must be 2 minutes and 1 MB or less."
           : `Images must be ${Math.round(max / 1024)} KB or less.`;

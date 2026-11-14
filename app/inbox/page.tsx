@@ -1,5 +1,6 @@
 "use client";
 
+import { useTypingIndicator } from "@/lib/useTypingIndicator";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -366,6 +367,14 @@ export default function InboxPage() {
           unread_count: summary.unread_count + (incoming.sender_id !== userId && selected !== incoming.conversation_id ? 1 : 0),
         }).sort((left, right) => right.last_message_at.localeCompare(left.last_message_at)));
         if (selected === incoming.conversation_id) {
+          if (incoming.sender_id !== userId && document.visibilityState === "visible") {
+            void supabase.from("message_reads").upsert(
+              [{ conversation_id: incoming.conversation_id, message_id: incoming.id, reader_id: userId }],
+              { onConflict: "message_id,reader_id", ignoreDuplicates: true },
+            ).then(({ error: readError }) => {
+              if (readError) console.error("Could not mark message as read.", readError.message);
+            });
+          }
           void saveCachedMessages([incoming]).catch((cacheError: unknown) => {
             setError(cacheError instanceof Error ? cacheError.message : "Could not save chat history on this device.");
           });
@@ -382,7 +391,12 @@ export default function InboxPage() {
         }
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "message_reads" }, (payload) => {
-        const row = payload.new as { conversation_id?: string; reader_id?: string };
+        const row = payload.new as { conversation_id?: string; reader_id?: string; message_id?: string };
+        const seenMessageId = row.message_id;
+        if (seenMessageId && row.conversation_id && row.reader_id !== userId && selectedConversationRef.current === row.conversation_id) {
+          setReadMessageIds((current) => (current.has(seenMessageId) ? current : new Set(current).add(seenMessageId)));
+          return;
+        }
         if (row.reader_id !== userId || !row.conversation_id) return;
         setSummaries((current) => current.map((summary) => summary.conversation_id === row.conversation_id
           ? { ...summary, unread_count: Math.max(0, summary.unread_count - 1) }
@@ -803,6 +817,7 @@ export default function InboxPage() {
     }
   };
 
+  const { peerTyping } = useTypingIndicator({ supabase, conversationId: selectedConversationId, userId, draft });
   const unreadTotal = summaries.reduce((total, summary) => total + Number(summary.unread_count), 0);
 
   return (
@@ -965,7 +980,16 @@ export default function InboxPage() {
                 );
               })}
               {!messages.length ? <p className="m-auto max-w-xs text-center text-sm leading-relaxed text-zinc-500">Say hello to {otherPerson.name || otherPerson.username} and start your conversation.</p> : null}
-              <div ref={messagesEndRef} />
+              {peerTyping ? (
+  <div className="flex justify-start" role="status" aria-label="Typing">
+    <span className="inline-flex items-center gap-1 rounded-2xl bg-white/10 px-3 py-2.5">
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-300 motion-reduce:animate-none" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-300 [animation-delay:150ms] motion-reduce:animate-none" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-300 [animation-delay:300ms] motion-reduce:animate-none" />
+    </span>
+  </div>
+) : null}
+<div ref={messagesEndRef} />
             </div>
 
             <div className="shrink-0 border-t border-white/10 bg-[#0d0a20] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">

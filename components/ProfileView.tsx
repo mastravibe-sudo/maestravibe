@@ -114,109 +114,76 @@ export default function ProfileView({
     }
   };
 
+  const BACKGROUND_IMAGE_BYTES = 1024 * 1024;
+  const BACKGROUND_VIDEO_BYTES = 4 * 1024 * 1024;
+  const BACKGROUND_VIDEO_SECONDS = 15;
+
+  // Background image: 1920 px tak, sabse behtar WebP quality jo 1 MB mein fit ho.
   const compressBackground = (file: File) =>
     new Promise<Blob>((resolve, reject) => {
       const url = URL.createObjectURL(file);
       const img = new Image();
-      img.onload = () => {
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("This image could not be read. Use a JPG, PNG, or WebP file."));
+      };
+      img.onload = async () => {
         try {
           if (!img.naturalWidth || !img.naturalHeight) throw new Error("This image has no readable size.");
           const canvas = document.createElement("canvas");
-          canvas.width = Math.min(img.naturalWidth, 1600);
-          canvas.height = Math.round(img.naturalHeight * (canvas.width / img.naturalWidth));
           const ctx = canvas.getContext("2d");
           if (!ctx) throw new Error("Your browser could not prepare this image.");
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          canvas.toBlob(
-            (blob) => (blob && blob.type === "image/webp" ? resolve(blob) : reject(new Error("Could not compress this image."))),
-            "image/webp",
-            0.82,
-          );
+          let scale = Math.min(1, 1920 / Math.max(img.naturalWidth, img.naturalHeight));
+          while (scale >= 0.3) {
+            canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+            canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            for (const quality of [0.92, 0.86, 0.8, 0.72, 0.64, 0.56]) {
+              const blob = await new Promise<Blob | null>((done) => canvas.toBlob(done, "image/webp", quality));
+              if (!blob || blob.type !== "image/webp") throw new Error("Could not compress this image.");
+              if (blob.size <= BACKGROUND_IMAGE_BYTES) {
+                resolve(blob);
+                return;
+              }
+            }
+            scale *= 0.85;
+          }
+          throw new Error("This image is too detailed to fit in 1 MB. Try a simpler image.");
         } catch (error) {
           reject(error);
         } finally {
           URL.revokeObjectURL(url);
         }
       };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error("This image could not be read. Use a JPG, PNG, or WebP file."));
-      };
       img.src = url;
     });
 
-  // Re-encodes the first 5 seconds as a small WebM (no audio, max 720px wide).
-  const compressVideo = async (file: File): Promise<File> => {
-    const mimeType = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(
-      (type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type),
-    );
-    if (!mimeType || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
-      if (file.size <= 600 * 1024) return file;
-      throw new Error("This browser cannot compress video. Use a clip under 500 KB.");
-    }
-
-    const url = URL.createObjectURL(file);
-    try {
+  // Background video: dobara encode NAHI hoti. Sirf check hota hai, phir asal file upload hoti hai.
+  const checkBackgroundVideo = (file: File) =>
+    new Promise<File>((resolve, reject) => {
+      const url = URL.createObjectURL(file);
       const video = document.createElement("video");
+      video.preload = "metadata";
       video.muted = true;
-      video.playsInline = true;
-      video.preload = "auto";
-      await new Promise<void>((resolve, reject) => {
-        video.onloadeddata = () => resolve();
-        video.onerror = () => reject(new Error("This video could not be played. Use MP4 or WebM."));
-        video.src = url;
-      });
-      if (!video.videoWidth || !video.videoHeight) throw new Error("This video has no readable size.");
-
-      const width = Math.min(video.videoWidth, 720);
-      const height = Math.round(video.videoHeight * (width / video.videoWidth));
-      const canvas = document.createElement("canvas");
-      canvas.width = width - (width % 2);
-      canvas.height = height - (height % 2);
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Your browser could not prepare this video.");
-
-      const seconds = Math.min(5, Number.isFinite(video.duration) ? video.duration : 5);
-      let smallest: Blob | null = null;
-
-      for (const bitrate of [850000, 650000, 450000]) {
-        setBgStatus(`Compressing video (${Math.round(bitrate / 1000)} kbps)...`);
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          const stream = canvas.captureStream(24);
-          const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
-          const chunks: Blob[] = [];
-          recorder.ondataavailable = (event) => {
-            if (event.data.size) chunks.push(event.data);
-          };
-          recorder.onerror = () => reject(new Error("Video compression failed."));
-          recorder.onstop = () => {
-            stream.getTracks().forEach((track) => track.stop());
-            resolve(new Blob(chunks, { type: "video/webm" }));
-          };
-          const draw = () => {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            if (video.currentTime >= seconds - 0.05 || video.ended) {
-              video.pause();
-              recorder.stop();
-              return;
-            }
-            requestAnimationFrame(draw);
-          };
-          video.currentTime = 0;
-          recorder.start();
-          video.play().then(() => requestAnimationFrame(draw)).catch(() => reject(new Error("This video could not be played.")));
-        });
-        if (!smallest || blob.size < smallest.size) smallest = blob;
-        if (blob.size <= 520 * 1024) break;
-      }
-
-      if (!smallest || smallest.size === 0) throw new Error("Video compression failed.");
-      if (smallest.size > 1024 * 1024) throw new Error("This video is too complex to compress small enough. Try a simpler clip.");
-      return new File([smallest], "background.webm", { type: "video/webm" });
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  };
+      const finish = (action: () => void) => {
+        URL.revokeObjectURL(url);
+        action();
+      };
+      video.onerror = () => finish(() => reject(new Error("This video could not be read. Use MP4 (H.264) or WebM.")));
+      video.onloadedmetadata = () => {
+        if (!video.videoWidth || !video.videoHeight || !Number.isFinite(video.duration)) {
+          finish(() => reject(new Error("This video could not be read. Use MP4 (H.264) or WebM.")));
+          return;
+        }
+        if (video.duration > BACKGROUND_VIDEO_SECONDS) {
+          finish(() => reject(new Error("Background videos must be " + BACKGROUND_VIDEO_SECONDS + " seconds or shorter.")));
+          return;
+        }
+        finish(() => resolve(file));
+      };
+      video.src = url;
+    });
 
   const uploadBackground = async (file?: File) => {
     if (!file || !access.isOwner) return;
@@ -225,18 +192,18 @@ export default function ProfileView({
       setFollowError("Choose a JPG, PNG, WebP image, or an MP4/WebM video.");
       return;
     }
-    if (isVideo && file.size > 50 * 1024 * 1024) {
-      setFollowError("Choose a video smaller than 50 MB.");
+    if (isVideo && file.size > BACKGROUND_VIDEO_BYTES) {
+      setFollowError("Choose a video of " + Math.round(BACKGROUND_VIDEO_BYTES / 1024 / 1024) + " MB or less. Export it at about 1.5 to 2.5 Mbps (720p).");
       return;
     }
     setMediaSaving(true);
     setFollowError(null);
     try {
-      const body = isVideo ? await compressVideo(file) : await compressBackground(file);
+      const body = isVideo ? await checkBackgroundVideo(file) : await compressBackground(file);
       setBgStatus("Uploading background...");
       const form = new FormData();
       form.append("purpose", isVideo ? "profile-background-video" : "profile-background-image");
-      form.append("file", body, isVideo ? "background.webm" : "background.webp");
+      form.append("file", body, isVideo ? (file.type === "video/webm" ? "background.webm" : "background.mp4") : "background.webp");
       const response = await fetch("/api/upload", { method: "POST", body: form });
       const result = await response.json() as { publicUrl?: string; error?: string };
       if (!response.ok || !result.publicUrl) throw new Error(result.error || "Background upload failed.");

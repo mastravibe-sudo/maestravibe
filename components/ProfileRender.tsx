@@ -285,10 +285,11 @@ export default function ProfileRender({
   }, [profile.id]);
 
   // "background" shorthand ko backgroundImage + backgroundColor mein toda hai (React warning se bachne ke liye)
-  const backgroundImage = profile.theme.backgroundType === "solid"
+  const isVideoBackground = profile.theme.backgroundType === "image" && profile.theme.backgroundMediaType === "video";
+  const backgroundImage = profile.theme.backgroundType === "solid" || isVideoBackground
     ? "none"
     : profile.theme.backgroundType === "image" && /^https?:\/\//i.test(profile.theme.backgroundValue)
-      ? `url("${profile.theme.backgroundValue}")`
+      ? "url(\"" + profile.theme.backgroundValue + "\")"
       : profile.theme.backgroundValue;
   const backgroundColor = profile.theme.backgroundType === "solid"
     ? profile.theme.backgroundValue
@@ -310,17 +311,16 @@ export default function ProfileRender({
     >
       {profile.theme.backgroundType === "image" && profile.theme.backgroundMediaType === "video" && /^https?:\/\//i.test(profile.theme.backgroundValue) ? (
         <video
-  src={profile.theme.backgroundValue}
-  autoPlay
-  muted
-  playsInline
-  onTimeUpdate={(event) => {
-    if (event.currentTarget.currentTime >= 5) event.currentTarget.pause();
-  }}
-  aria-hidden="true"
-  tabIndex={-1}
-  className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover"
-/>
+          src={profile.theme.backgroundValue}
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="metadata"
+          aria-hidden="true"
+          tabIndex={-1}
+          className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover motion-reduce:hidden"
+        />
       ) : null}      {onBannerClick ? (
         <button type="button" onClick={onBannerClick} aria-label="Change profile cover" className="absolute right-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-[#07061a]/75 text-white shadow-lg backdrop-blur hover:bg-violet-600">
           <Camera className="h-4 w-4" aria-hidden="true" />
