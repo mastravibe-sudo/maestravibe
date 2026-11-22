@@ -87,8 +87,16 @@ export default function ProfileMediaEditor({ file, imageType, saving, onClose, o
 
   useEffect(() => {
     const url = createPreview(file);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
+    let live = true;
+    // State is set from a microtask, not synchronously inside the effect. If React Strict Mode
+    // replays the effect, the first URL is revoked and never shown; the second one is used.
+    queueMicrotask(() => {
+      if (live) setPreviewUrl(url);
+    });
+    return () => {
+      live = false;
+      URL.revokeObjectURL(url);
+    };
   }, [file]);
 
   const save = async () => {

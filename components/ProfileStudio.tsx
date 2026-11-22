@@ -144,6 +144,37 @@ function readVideoSeconds(file: File) {
     video.src = url;
   });
 }
+async function compressBannerImage(file: File) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("Choose a valid JPG, PNG, or WebP image."));
+      element.src = objectUrl;
+    });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Your browser could not prepare this image.");
+    let scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+    while (scale >= 0.2) {
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.9, 0.82, 0.74, 0.66, 0.58, 0.5, 0.42, 0.34]) {
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", quality));
+        if (!blob) throw new Error("Your browser could not compress this image.");
+        if (blob.size <= 290 * 1024) return blob;
+      }
+      scale *= 0.85;
+    }
+    throw new Error("This banner is too detailed to fit under 300 KB. Try a simpler image.");
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 function messageOf(error: unknown, fallback: string) {
   return error && typeof error === "object" && "message" in error && typeof error.message === "string"
     ? error.message
@@ -451,7 +482,7 @@ export default function ProfileStudio({
     setError(null);
     setSuccess(null);
     try {
-      const image = await compressImage(file);
+      const image = imageType === "banner" ? await compressBannerImage(file) : await compressImage(file);
       const formData = new FormData();
       formData.append("purpose", "profile");
       formData.append("imageType", imageType);
@@ -1017,7 +1048,7 @@ export default function ProfileStudio({
                 {uploadControl("banner", identity.banner_url ? "Replace banner" : "Upload banner")}
                 {identity.banner_url ? <button type="button" onClick={() => setIdentity((current) => ({ ...current, banner_url: "" }))} className={dangerButton}>Remove</button> : null}
               </div>
-              <p className="mt-3 text-[11px] text-zinc-500">Images are converted to WebP and kept under 100 KB. Save to publish.</p>
+              <p className="mt-3 text-[11px] text-zinc-500">Banners are converted to WebP and kept under 300 KB. Save to publish.</p>
             </div>
 </>
 ) : null}

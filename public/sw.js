@@ -1,4 +1,14 @@
-const SHELL_CACHE = "maestra-shell-v2";
+const SHELL_CACHE = "maestra-shell-v3";
+const RUNTIME_CACHE = "maestra-runtime-v1";
+const STATIC_CACHE = "maestra-static-v1";
+const MAX_PAGES = 40;
+const MAX_STATIC = 250;
+const IS_LOCAL = ["localhost", "127.0.0.1"].includes(self.location.hostname);
+
+async function trimCache(cache, max) {
+  const keys = await cache.keys();
+  if (keys.length > max) await Promise.all(keys.slice(0, keys.length - max).map((key) => cache.delete(key)));
+}
 const BADGE_COUNT_URL = "/__maestra_badge_count__";
 const SHELL_URLS = [
   "/icon-192.png",
@@ -29,13 +39,21 @@ async function updateAppBadge(count) {
 }
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_URLS)));
+  event.waitUntil(caches.open(SHELL_CACHE).then(async (cache) => {
+    await cache.addAll(SHELL_URLS);
+    try {
+      const offline = await fetch("/offline.html", { cache: "reload", redirect: "error" });
+      if (offline.ok) await cache.put("/offline.html", offline);
+    } catch {
+      // offline.html na mile to bhi install fail nahi hona chahiye
+    }
+  }));
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("maestra-") && key !== SHELL_CACHE).map((key) => caches.delete(key))))
+    caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("maestra-") && key !== SHELL_CACHE && key !== RUNTIME_CACHE && key !== STATIC_CACHE).map((key) => caches.delete(key))))
   );
   self.clients.claim();
 });
@@ -43,20 +61,44 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
-  if (request.method !== "GET" || url.origin !== self.location.origin) return;
+  if (IS_LOCAL || request.method !== "GET" || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/")) return;
 
-  if (request.mode === "navigate" && url.pathname === "/") {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            void caches.open(SHELL_CACHE).then((cache) => cache.put("/", copy));
-          }
-          return response;
-        })
-        .catch(async () => (await caches.match("/")) || Response.error())
-    );
+  // Build ki hashed files kabhi nahi badalti: pehle cache se do.
+  if (url.pathname.startsWith("/_next/static/")) {
+    event.respondWith((async () => {
+      const cache = await caches.open(STATIC_CACHE);
+      const cached = await cache.match(request);
+      if (cached) return cached;
+      const response = await fetch(request);
+      if (response.ok) {
+        const copy = response.clone();
+        event.waitUntil(cache.put(request, copy).then(() => trimCache(cache, MAX_STATIC)));
+      }
+      return response;
+    })());
+    return;
+  }
+
+  // Pages: pehle internet, na ho to pichli dekhi hui copy, phir /offline.html.
+  if (request.mode === "navigate") {
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(request);
+        if (response.ok && !response.redirected) {
+          const copy = response.clone();
+          event.waitUntil(caches.open(RUNTIME_CACHE).then(async (cache) => {
+            await cache.put(request, copy);
+            await trimCache(cache, MAX_PAGES);
+          }));
+        }
+        return response;
+      } catch {
+        return (await caches.match(request))
+          || (await caches.match("/offline.html"))
+          || Response.error();
+      }
+    })());
     return;
   }
 
@@ -66,6 +108,10 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("message", (event) => {
+  if (event.data?.type === "CLEAR_USER_CACHE") {
+    event.waitUntil(caches.delete(RUNTIME_CACHE));
+    return;
+  }
   if (event.data?.type === "APP_OPENED") {
     event.waitUntil(updateAppBadge(0));
     return;

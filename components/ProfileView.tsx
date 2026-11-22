@@ -279,6 +279,7 @@ export default function ProfileView({
               role="menuitem"
               onClick={async () => {
                 const { error } = await createClient().auth.signOut();
+                if ("serviceWorker" in navigator) navigator.serviceWorker.controller?.postMessage({ type: "CLEAR_USER_CACHE" });
                 if (error) {
                   setFollowError(error.message);
                   return;

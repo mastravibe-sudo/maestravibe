@@ -5,6 +5,7 @@ import { publicUrl, uploadObject } from "@/lib/r2";
 
 const LIMITS = {
   profile: 100 * 1024,
+  profileBanner: 300 * 1024,
   profileBackground: 1024 * 1024,
   profileBackgroundVideo: 4 * 1024 * 1024,
   post: 150 * 1024,
@@ -99,7 +100,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid upload purpose." }, { status: 400 });
   }
 
-  const max = isProfile ? LIMITS.profile
+  const max = isProfile ? (imageType === "banner" ? LIMITS.profileBanner : LIMITS.profile)
     : isPostImage ? LIMITS.post
       : isProfileBackgroundVideo ? LIMITS.profileBackgroundVideo
       : isPostVideo ? LIMITS.video
